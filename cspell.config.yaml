@@ -1,0 +1,6 @@
+dictionaryDefinitions:
+    - name: project-words
+      path: './.cspell-dicts/dictionary.txt'
+      addWords: true
+dictionaries:
+    - project-words

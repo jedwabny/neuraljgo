@@ -1,0 +1,4 @@
+jedwabny
+Logit
+neuraljgo
+Softmax
