@@ -88,7 +88,7 @@ func BuildFromModel(modelDTO *ModelDTO) (*Network, error) {
 				return nil, fmt.Errorf("model contains layer biases size not matching specification: %d != %d",
 					len(modelDTO.Parameters.BodyLayers[i].Biases), l.OutputSize)
 			}
-			builder.AddBodyDenseLayer(l.OutputSize, activation)
+			builder.AddDenseLayer(l.OutputSize, activation)
 			createdLayer := builder.leadingBodyLayer().(*DenseLayer)
 			createdLayer.weights.data = append([]float64(nil), modelDTO.Parameters.BodyLayers[i].Weights...)
 			createdLayer.biases.data = append([]float64(nil), modelDTO.Parameters.BodyLayers[i].Biases...)
@@ -155,7 +155,7 @@ func BuildFromModel(modelDTO *ModelDTO) (*Network, error) {
 	return &builder.network, nil
 }
 
-func (b *Builder) AddBodyDenseLayer(size int, activation Activation) *Builder {
+func (b *Builder) AddDenseLayer(size int, activation Activation) *Builder {
 	if !b.isValidStack() {
 		return b
 	}
