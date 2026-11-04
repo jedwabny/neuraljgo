@@ -1,4 +1,6 @@
 jedwabny
 Logit
+logits
 neuraljgo
+relu
 Softmax
