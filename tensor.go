@@ -6,106 +6,170 @@ import (
 	"slices"
 )
 
-// Tensor represents an n-dimensional dense tensor.
+// MaxRank is the maximum tensor rank supported by this package.
+const MaxRank int = 2
+
+type Shape []int
+
+// NewShape creates a Shape from the provided dimensions.
+// Dimensions of a valid shape must be positive.
+// NewShape does not validate the supplied dimensions, but tensor constructors validates the Shape.
 //
-// Currently supported ranks:
+// Shape created from the empty dimensions list represents a scalar.
 //
-//	0: scalar
-//	1: vector
-//	2: matrix
-type Tensor struct {
-	shape []int
-	data  []float64
-}
-
-// NewTensor creates a tensor with the given shape and data.
+// Examples:
 //
-// Shape examples:
-//
-//	nil            -> scalar
-//	[]int{4}       -> vector
-//	[]int{8, 8}    -> matrix (8x8)
-//
-// A rank-0 tensor has one element and is represented by an empty shape.
-// Both nil and empty non-nil shapes are accepted and normalized to nil internally.
-func NewTensor(shape []int, data []float64) (*Tensor, error) {
-	if err := isValidShape(shape); err != nil {
-		return nil, err
-	}
-
-	tensorSize := tensorSize(shape)
-	if len(data) != tensorSize {
-		return nil, fmt.Errorf(
-			"tensor size %d with shape %v does not match data size %d ", tensorSize, shape, len(data),
-		)
-	}
-
-	return &Tensor{
-		shape: append([]int(nil), shape...),
-		data:  append([]float64(nil), data...),
-	}, nil
+//	NewShape()     -> scalar
+//	NewShape(4)    -> vector
+//	NewShape(8, 8) -> matrix (8x8)
+func NewShape(dimensions ...int) Shape {
+	return append(Shape(nil), dimensions...)
 }
 
-func NewZerosTensor(shape []int) (*Tensor, error) {
-	if err := isValidShape(shape); err != nil {
-		return nil, err
-	}
-
-	tensorSize := tensorSize(shape)
-	data := make([]float64, tensorSize)
-
-	return NewTensor(shape, data)
+// Rank returns the number of dimensions in the shape.
+func (s Shape) Rank() int {
+	return len(s)
 }
 
-// NewScalar creates a rank-0 tensor.
-func NewScalar(value float64) *Tensor {
-	return &Tensor{
-		shape: nil,
-		data:  []float64{value},
-	}
-}
-
-// NewVector creates a rank 1 tensor.
-func NewVector(data []float64) *Tensor {
-	return &Tensor{
-		shape: []int{len(data)},
-		data:  append([]float64(nil), data...),
-	}
-}
-
-// NewMatrix creates a rank 2 tensor.
-func NewMatrix(shape []int, data []float64) (*Tensor, error) {
-	return NewTensor(shape, data)
-}
-
-// Rank returns the number of dimensions (axes) of the tensor.
-func (t *Tensor) Rank() int {
-	return len(t.shape)
-}
-
-// Shape returns the size of each dimension (axis) of the tensor.
-func (t *Tensor) Shape() []int {
-	return append([]int(nil), t.shape...)
-}
-
-// Size returns the total number of elements defined by the tensor shape.
+// Size returns the total number of elements represented by the shape.
 // It is calculated as the product of all shape dimensions.
-// For a rank-0 tensor, Size returns 1.
-func (t *Tensor) Size() int {
-	return tensorSize(t.shape)
-}
-
-func tensorSize(shape []int) int {
-	if len(shape) == 0 {
+// An empty shape represents a scalar and therefore has size 1.
+func (s Shape) Size() int {
+	if len(s) == 0 {
 		return 1
 	}
 
 	size := 1
-	for _, dimension := range shape {
+	for _, dimension := range s {
 		size *= dimension
 	}
 
 	return size
+}
+
+// Tensor represents an n-dimensional dense tensor.
+//
+// Tensor data is stored in row-major order, meaning the last dimension
+// changes fastest when traversing the flattened data.
+//
+// Currently supported ranks:
+//
+//   - Rank 0: scalar
+//   - Rank 1: vector
+//   - Rank 2: matrix
+type Tensor struct {
+	shape Shape
+	data  []float64
+}
+
+// NewTensor creates a tensor with the given shape and flattened data.
+// The number of data elements must match the total size of the shape.
+//
+// A rank 0 tensor contains one element and is represented by an empty shape.
+func NewTensor(shape Shape, data []float64) (*Tensor, error) {
+	if err := validateShape(shape); err != nil {
+		return nil, err
+	}
+
+	if len(data) != shape.Size() {
+		return nil, fmt.Errorf(
+			"tensor size %d with shape %v does not match data size %d ", shape.Size(), shape, len(data),
+		)
+	}
+
+	return &Tensor{
+		shape: NewShape(shape...),
+		data:  append([]float64(nil), data...),
+	}, nil
+}
+
+// NewZerosTensor creates a tensor with the given shape,
+// initializing all its elements to zeros.
+//
+// A rank 0 tensor contains one element and is represented by an empty shape.
+func NewZerosTensor(shape Shape) (*Tensor, error) {
+	if err := validateShape(shape); err != nil {
+		return nil, err
+	}
+
+	return &Tensor{
+		shape: NewShape(shape...),
+		data:  make([]float64, shape.Size()),
+	}, nil
+}
+
+// NewScalar creates a rank 0 tensor containing the given value.
+func NewScalar(value float64) *Tensor {
+	return &Tensor{
+		shape: NewShape(),
+		data:  []float64{value},
+	}
+}
+
+// NewVector creates a rank 1 tensor from the provided data.
+// The tensor shape is inferred from the length of the data.
+func NewVector(data []float64) *Tensor {
+	return &Tensor{
+		shape: NewShape(len(data)),
+		data:  append([]float64(nil), data...),
+	}
+}
+
+// NewMatrix creates a rank 2 tensor from the provided data.
+// The tensor shape is determined by the given number of rows and columns.
+// The data must contain rows*cols elements in flattened row-major order.
+func NewMatrix(rows, cols int, data []float64) (*Tensor, error) {
+	shape := NewShape(rows, cols)
+
+	if err := validateShape(shape); err != nil {
+		return nil, fmt.Errorf("invalid matrix shape: %w", err)
+	}
+
+	if len(data) != rows*cols {
+		return nil, fmt.Errorf(
+			"matrix data length %d does not match shape %dx%d", len(data), rows, cols,
+		)
+	}
+
+	return &Tensor{
+		shape: shape,
+		data:  append([]float64(nil), data...),
+	}, nil
+}
+
+// validateShape validates a tensor shape.
+//
+// The current implementation supports ranks 0 through 2.
+// All dimensions must be positive.
+func validateShape(shape Shape) error {
+	if len(shape) > MaxRank {
+		return fmt.Errorf("rank %d tensor is not supported; maximum supported rank is %d", len(shape), MaxRank)
+	}
+
+	for _, dimension := range shape {
+		if dimension <= 0 {
+			return fmt.Errorf("invalid tensor dimension %d within shape %v", dimension, shape)
+		}
+	}
+
+	return nil
+}
+
+// Shape returns a copy of the tensor's shape.
+func (t *Tensor) Shape() Shape {
+	return append(Shape(nil), t.shape...)
+}
+
+// Rank returns the number of dimensions of the tensor.
+func (t *Tensor) Rank() int {
+	return t.shape.Rank()
+}
+
+// Size returns the total number of elements represented by the tensor shape.
+// It is calculated as the product of all shape dimensions.
+// A rank 0 tensor has size 1.
+func (t *Tensor) Size() int {
+	return t.shape.Size()
 }
 
 // DataSize returns the number of elements currently stored in the tensor data.
@@ -118,7 +182,7 @@ func (t *Tensor) DataSize() int {
 // Clone returns an independent copy of the tensor.
 func (t *Tensor) Clone() *Tensor {
 	return &Tensor{
-		shape: append([]int(nil), t.shape...),
+		shape: NewShape(t.shape...),
 		data:  append([]float64(nil), t.data...),
 	}
 }
@@ -128,7 +192,7 @@ func (t *Tensor) Data() []float64 {
 	return append([]float64(nil), t.data...)
 }
 
-// Scalar returns the value of a rank-0 tensor.
+// Scalar returns the value of a rank 0 tensor.
 //
 // It returns an error if the tensor is not a scalar or does not contain single element.
 func (t *Tensor) Scalar() (float64, error) {
@@ -173,7 +237,7 @@ func (t *Tensor) SetZeros() {
 //
 // The number of coordinates must equal the tensor rank, and each coordinate
 // must be within the corresponding dimension.
-// A rank-0 tensor is addressed with nil coordinates.
+// A rank 0 tensor is addressed with nil coordinates.
 func (t *Tensor) SetAt(at []int, value float64) error {
 	if t.Rank() != len(at) {
 		return fmt.Errorf("tensor set at: indices %v are invalid for rank %d tensor", at, t.Rank())
@@ -200,7 +264,7 @@ func (t *Tensor) SetAt(at []int, value float64) error {
 //
 // The number of coordinates must equal the tensor rank, and each coordinate
 // must be within the corresponding dimension.
-// A rank-0 tensor is addressed with nil coordinates.
+// A rank 0 tensor is addressed with nil coordinates.
 func (t *Tensor) At(at []int) (float64, error) {
 	if t.Rank() != len(at) {
 		return 0.0, fmt.Errorf("tensor at: indices %v are invalid for rank %d tensor", at, t.Rank())
@@ -224,14 +288,13 @@ func (t *Tensor) At(at []int) (float64, error) {
 // offset returns the zero-based offset of the tensor element at the specified
 // coordinates in its underlying one-dimensional storage.
 //
-// Coordinates use row-major (C-order) layout, where the last axis varies
-// fastest.
+// Coordinates use row-major (C-order) layout, where the last axis varies fastest.
 
 // For example, for shape [2, 3, 4], coordinates [1, 2, 3] corresponds to offset 23:
 //
 //	1*(3*4) + 2*4 + 3 = 23
 //
-// A rank-0 tensor has offset 0 and is addressed with nil coordinates.
+// A rank 0 tensor has offset 0 and is addressed with nil coordinates.
 func (t *Tensor) offset(at []int) (int, error) {
 	if t.Rank() != len(at) {
 		return 0, fmt.Errorf("tensor offset: indices %v are invalid for rank %d tensor", at, t.Rank())
@@ -250,25 +313,6 @@ func (t *Tensor) offset(at []int) (int, error) {
 	}
 
 	return offset, nil
-}
-
-// isValidShape validates a tensor shape.
-//
-// The current implementation supports ranks 0 through 2
-// and requires all dimensions to be positive.
-func isValidShape(shape []int) error {
-	maxRank := 2
-	if len(shape) > maxRank {
-		return fmt.Errorf("rank %d tensor is not supported; maximum supported rank is %d", len(shape), maxRank)
-	}
-
-	for _, dimension := range shape {
-		if dimension <= 0 {
-			return fmt.Errorf("invalid tensor dimension %d within shape %v", dimension, shape)
-		}
-	}
-
-	return nil
 }
 
 func (t *Tensor) RequireRank(expected int, operation string) error {
@@ -325,19 +369,19 @@ func (t *Tensor) MulScalar(value float64) *Tensor {
 	}
 
 	return &Tensor{
-		shape: append([]int(nil), t.shape...),
+		shape: NewShape(t.shape...),
 		data:  data,
 	}
 }
 
-// Softmax is currently defined for rank-1 tensors and operates over all elements of the vector.
+// Softmax is currently defined for rank 1 tensors and operates over all elements of the vector.
 func (t *Tensor) Softmax() (*Tensor, error) {
 	if t == nil {
 		return nil, fmt.Errorf("tensor softmax: input tensor is nil")
 	}
 
 	if t.Rank() != 1 {
-		return nil, fmt.Errorf("tensor softmax: expected rank-1 tensor, got rank %d", t.Rank())
+		return nil, fmt.Errorf("tensor softmax: expected rank 1 tensor, got rank %d", t.Rank())
 	}
 
 	if len(t.data) == 0 {
@@ -375,7 +419,7 @@ func (t *Tensor) Softmax() (*Tensor, error) {
 	}
 
 	return &Tensor{
-		shape: append([]int(nil), t.shape...),
+		shape: NewShape(t.shape...),
 		data:  result,
 	}, nil
 }
