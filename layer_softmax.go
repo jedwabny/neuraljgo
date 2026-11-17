@@ -4,44 +4,29 @@ import "fmt"
 
 // SoftmaxLayer implements the Softmax activation as an ordinary neural network layer.
 //
-// SoftmaxLayer may be placed anywhere in a layer stack, including as the last layer.
-// It participates in both forward and backward propagation and
-// has no special relationship with Loss.
+// It may be placed anywhere in a layer stack, but the output layer is the most usual.
+// It participates in both forward and backward propagation and has no special relationship with Loss.
 //
-// Softmax preserves the number of elements. Its input and output sizes must therefore be equal.
+// Softmax preserves the number of elements. Its input and output sizes are therefore equal.
 // The preceding layer must produce the same number of outputs as the Softmax layer size.
 // The preceding layer may use any activation; Linear is the usual choice when its output represents logits.
 type SoftmaxLayer struct {
-	size int
+	inputSize int
 
 	trainingCache *TrainingCache // Input is used for storing logits.
 }
 
-func NewSoftmaxLayer(size int) (*SoftmaxLayer, error) {
-	if size <= 0 {
-		return nil, fmt.Errorf("layer size must be higher than zero")
+func NewSoftmaxLayer(inputSize int) (*SoftmaxLayer, error) {
+	if inputSize <= 0 {
+		return nil, fmt.Errorf("softmax layer input size must be higher than zero")
 	}
 
 	layer := &SoftmaxLayer{
-		size:          size,
+		inputSize:     inputSize,
 		trainingCache: nil,
 	}
 
 	return layer, nil
-}
-
-func (l *SoftmaxLayer) InputSize() int {
-	return l.size
-}
-
-func (l *SoftmaxLayer) OutputSize() int {
-	return l.size
-}
-
-func (l *SoftmaxLayer) Reset() error {
-	l.trainingCache = nil
-
-	return nil
 }
 
 func (l *SoftmaxLayer) Forward(input *Tensor, storeTrainingCache bool) (*Tensor, error) {
@@ -50,11 +35,11 @@ func (l *SoftmaxLayer) Forward(input *Tensor, storeTrainingCache bool) (*Tensor,
 	if input == nil {
 		return nil, fmt.Errorf("softmax layer forward: input tensor is nil")
 	}
-	if err := input.RequireRank(1, "softmax layer forward"); err != nil {
-		return nil, err
+	if err := input.shape.validateWithRank(1); err != nil {
+		return nil, fmt.Errorf("softmax layer forward: %w", err)
 	}
-	if input.Size() != l.InputSize() {
-		return nil, fmt.Errorf("softmax layer forward: input size mismatch: expected %d, got %d with shape %v", l.InputSize(), input.Size(), input.Shape())
+	if input.Size() != l.inputSize {
+		return nil, fmt.Errorf("softmax layer forward: input size mismatch: expected %d, got %d with shape %v", l.inputSize, input.Size(), input.Shape())
 	}
 
 	output, err := input.Softmax()
@@ -80,13 +65,13 @@ func (l *SoftmaxLayer) Backward(outputGrad *Tensor) (*Tensor, error) {
 	if outputGrad == nil {
 		return nil, fmt.Errorf("softmax layer backward: output gradient tensor is nil")
 	}
-	if err := outputGrad.RequireRank(1, "softmax layer backward"); err != nil {
-		return nil, err
+	if err := outputGrad.shape.validateWithRank(1); err != nil {
+		return nil, fmt.Errorf("softmax layer backward: %w", err)
 	}
-	if outputGrad.Size() != l.OutputSize() {
+	if outputGrad.Size() != l.inputSize {
 		return nil, fmt.Errorf(
 			"softmax layer backward: gradient size mismatch: expected %d, got %d with shape %v",
-			l.OutputSize(), outputGrad.Size(), outputGrad.Shape(),
+			l.inputSize, outputGrad.Size(), outputGrad.Shape(),
 		)
 	}
 
@@ -101,12 +86,12 @@ func (l *SoftmaxLayer) Backward(outputGrad *Tensor) (*Tensor, error) {
 	}
 
 	var dot float64
-	for i := range l.OutputSize() {
+	for i := range l.inputSize {
 		dot += outputGradVector[i] * cachedOutputVector[i]
 	}
 
-	inputGradVector := make([]float64, l.InputSize())
-	for i := range l.InputSize() {
+	inputGradVector := make([]float64, l.inputSize)
+	for i := range l.inputSize {
 		inputGradVector[i] = cachedOutputVector[i] * (outputGradVector[i] - dot)
 	}
 
@@ -126,8 +111,8 @@ func (l *SoftmaxLayer) TrainingCache() *TrainingCache {
 func (l *SoftmaxLayer) SpecificationDTO() *LayerSpecificationDTO {
 	return &LayerSpecificationDTO{
 		TypeID:      SoftmaxLayerTypeID,
-		InputSize:   l.InputSize(),
-		OutputSize:  l.OutputSize(),
+		InputShape:  l.InputShape(),
+		OutputShape: l.OutputShape(),
 		Activation:  nil,
 		Initializer: nil,
 	}
@@ -139,3 +124,19 @@ func (l *SoftmaxLayer) ParametersDTO() *LayerParametersDTO {
 		Biases:  nil,
 	}
 }
+
+func (l *SoftmaxLayer) InputShape() Shape {
+	return NewShape(l.inputSize)
+}
+
+func (l *SoftmaxLayer) OutputShape() Shape {
+	return NewShape(l.inputSize)
+}
+
+func (l *SoftmaxLayer) Reset() error {
+	l.trainingCache = nil
+
+	return nil
+}
+
+var _ Layer = (*SoftmaxLayer)(nil)

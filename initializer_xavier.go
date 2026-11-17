@@ -1,6 +1,7 @@
 package neuraljgo
 
 import (
+	"fmt"
 	"math"
 	"math/rand/v2"
 )
@@ -8,11 +9,11 @@ import (
 type XavierInitializer struct{}
 
 func (x XavierInitializer) Initialize(weights *Tensor, biases *Tensor) error {
-	if err := weights.RequireRank(2, "xavier initialize weights tensor"); err != nil {
-		return err
+	if err := weights.shape.validateWithRank(2); err != nil {
+		return fmt.Errorf("xavier initializer validate weights tensor: %w", err)
 	}
-	if err := biases.RequireRank(1, "xavier initialize biases tensor"); err != nil {
-		return err
+	if err := biases.shape.validateWithRank(1); err != nil {
+		return fmt.Errorf("xavier initializer validate biases tensor: %w", err)
 	}
 
 	w := weights.data

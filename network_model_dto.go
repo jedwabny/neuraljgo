@@ -12,6 +12,7 @@ type MetadataDTO struct {
 }
 
 type SpecificationDTO struct {
+	InputShape  []int                            `json:"input_shape"`
 	BodyLayers  []*LayerSpecificationDTO         `json:"body_layers"`
 	OutputHeads map[HeadID]*HeadSpecificationDTO `json:"output_heads"`
 }
@@ -33,8 +34,8 @@ type HeadParametersDTO struct {
 type LayerSpecificationDTO struct {
 	TypeID LayerTypeID `json:"type_id"`
 
-	InputSize  int `json:"input_size"`
-	OutputSize int `json:"output_size"`
+	InputShape  []int `json:"input_shape"`
+	OutputShape []int `json:"output_shape"`
 
 	Activation  *ActivationModelDTO  `json:"activation"`
 	Initializer *InitializerModelDTO `json:"initializer"`

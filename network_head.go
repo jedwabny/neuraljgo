@@ -24,9 +24,8 @@ const (
 type Head struct {
 	headLayers []Layer
 
-	// softmaxTransformation converts a head's raw output into the prediction returned by the network.
+	// softmaxTransformation if not nil, converts a head's raw output into the probability distribution.
 	// It is applied during prediction and is not part of the ordinary backward graph.
-	// softmaxTransformation bool
 	softmaxTransformation *SoftmaxLayer
 }
 

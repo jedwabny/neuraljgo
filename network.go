@@ -6,22 +6,41 @@ import (
 )
 
 type Network struct {
-	signature string
-
+	signature   string
+	inputShape  Shape
 	bodyLayers  []Layer
 	outputHeads map[HeadID]*Head
+}
+
+// NewNetwork creates a Network with given signature and input shape.
+//
+// The body layers and heads map are empty and in current implementation
+// the Builder exposes the only way to build the complete network.
+func NewNetwork(signature string, inputShape Shape) (*Network, error) {
+	if inputShape == nil {
+		return nil, fmt.Errorf("network new: input shape is nil")
+	}
+
+	if err := inputShape.validate(0, 1); err != nil {
+		return nil, fmt.Errorf("network new: input shape: %w", err)
+	}
+
+	network := Network{
+		signature:   signature,
+		inputShape:  inputShape.Clone(),
+		bodyLayers:  make([]Layer, 0, 10),      // arbitrary starting capacity
+		outputHeads: make(map[HeadID]*Head, 5), // arbitrary starting capacity
+	}
+
+	return &network, nil
 }
 
 func (n *Network) Signature() string {
 	return n.signature
 }
 
-func (n *Network) InputSize() int {
-	if len(n.bodyLayers) == 0 {
-		return 0
-	}
-
-	return n.bodyLayers[0].InputSize()
+func (n *Network) InputShape() Shape {
+	return n.inputShape.Clone()
 }
 
 func (n *Network) Reset() {
@@ -36,10 +55,6 @@ func (n *Network) Reset() {
 // Predict evaluates the network for the given input
 // and returns the prediction for all network heads.
 func (n *Network) Predict(input *Tensor) (map[HeadID]*Tensor, error) {
-	if input == nil {
-		return nil, fmt.Errorf("input tensor is nil")
-	}
-
 	return n.forward(input, false)
 }
 
@@ -48,6 +63,16 @@ func (n *Network) Predict(input *Tensor) (map[HeadID]*Tensor, error) {
 // If storeTrainingCache is true, the data required by Backward is stored.
 func (n *Network) forward(input *Tensor, storeTrainingCache bool) (map[HeadID]*Tensor, error) {
 	var err error
+	if input == nil {
+		return nil, fmt.Errorf("network forward: input tensor is nil")
+	}
+
+	if !input.Shape().Equal(n.inputShape) {
+		return nil, fmt.Errorf(
+			"network forward: input shape mismatch: expected %v, got %v", n.inputShape, input.Shape(),
+		)
+	}
+
 	x := input.Clone()
 	for _, layer := range n.bodyLayers {
 		x, err = layer.Forward(x, storeTrainingCache)
@@ -77,27 +102,27 @@ func (n *Network) forward(input *Tensor, storeTrainingCache bool) (map[HeadID]*T
 // corresponding head output configuration.
 func (n *Network) Learn(input *Tensor, objectives LearningObjectives, optimizer Optimizer) (*LearningResult, error) {
 	if input == nil {
-		return nil, fmt.Errorf("input tensor is nil")
+		return nil, fmt.Errorf("network learn: input tensor is nil")
 	}
 
 	// Validate learning objectives to prevent partial updates.
 	for headID, headObjective := range objectives {
 		head, ok := n.outputHeads[headID]
 		if !ok {
-			return nil, fmt.Errorf("no such head in the network: %s", headID)
+			return nil, fmt.Errorf("network learn: no such head in the network: %s", headID)
 		}
 
 		if headObjective.Target == nil {
-			return nil, fmt.Errorf("learning objective for head %s has nil target", headID)
+			return nil, fmt.Errorf("network learn: learning objective for head %s has nil target", headID)
 		}
 		if headObjective.Loss == nil {
-			return nil, fmt.Errorf("learning objective for head %s has nil loss", headID)
+			return nil, fmt.Errorf("network learn: learning objective for head %s has nil loss", headID)
 		}
 
 		if _, ok := headObjective.Loss.(SoftmaxCrossEntropyLoss); ok {
 			if _, ok := head.headLayers[len(head.headLayers)-1].(*SoftmaxLayer); ok {
 				return nil, fmt.Errorf(
-					"using SoftmaxCrossEntropyLoss is invalid for Softmax configured as a layer; use CrossEntropyLoss or another compatible loss",
+					"network learn: using SoftmaxCrossEntropyLoss is invalid for Softmax configured as a layer; use CrossEntropyLoss or another compatible loss",
 				)
 			}
 		}
@@ -105,7 +130,7 @@ func (n *Network) Learn(input *Tensor, objectives LearningObjectives, optimizer 
 		if head.SoftmaxTransformation() {
 			if _, ok := headObjective.Loss.(SoftmaxCrossEntropyLoss); !ok {
 				return nil, fmt.Errorf(
-					"head '%s' uses Softmax transformation; SoftmaxCrossEntropyLoss is required", headID,
+					"network learn: head '%s' uses Softmax transformation; SoftmaxCrossEntropyLoss is required", headID,
 				)
 			}
 		}
@@ -122,12 +147,12 @@ func (n *Network) Learn(input *Tensor, objectives LearningObjectives, optimizer 
 		head, _ := n.outputHeads[headID]
 		_, ok := predictions[headID]
 		if !ok {
-			return nil, fmt.Errorf("prediction for learning objective head %s is missing", headID)
+			return nil, fmt.Errorf("network learn: prediction for learning objective head %s is missing", headID)
 		}
 		if head.softmaxTransformation != nil {
 			headTrainingCache := head.softmaxTransformation.TrainingCache()
 			if headTrainingCache == nil || headTrainingCache.Input == nil || headTrainingCache.Output == nil {
-				return nil, fmt.Errorf("head '%s' uses Softmax transformation but training cache is empty", headID)
+				return nil, fmt.Errorf("network learn: head '%s' uses Softmax transformation but training cache is empty", headID)
 			}
 		}
 	}
@@ -154,14 +179,14 @@ func (n *Network) Learn(input *Tensor, objectives LearningObjectives, optimizer 
 
 		headLoss, err := headObjective.Loss.Forward(lossInput, headObjective.Target)
 		if err != nil {
-			return nil, fmt.Errorf("loss calculation failed for head %s: %w", headID, err)
+			return nil, fmt.Errorf("network learn: loss calculation failed for head %s: %w", headID, err)
 		}
 		headsLoss[headID] = headLoss
 		totalLoss += headObjective.Weight * headLoss
 
 		lossGrad, err := headObjective.Loss.Gradient(lossInput, headObjective.Target)
 		if err != nil {
-			return nil, fmt.Errorf("loss gradient calculation failed for head %s: %w", headID, err)
+			return nil, fmt.Errorf("network learn: loss gradient calculation failed for head %s: %w", headID, err)
 		}
 
 		// Apply the objective weight to the gradient so that the parameter
@@ -172,7 +197,7 @@ func (n *Network) Learn(input *Tensor, objectives LearningObjectives, optimizer 
 
 		headGrad, err := head.Backward(lossGrad)
 		if err != nil {
-			return nil, fmt.Errorf("head %s backward failed: %w", headID, err)
+			return nil, fmt.Errorf("network learn: head %s backward failed: %w", headID, err)
 		}
 
 		if bodyGrad == nil {
@@ -182,7 +207,7 @@ func (n *Network) Learn(input *Tensor, objectives LearningObjectives, optimizer 
 
 		bodyGrad, err = bodyGrad.Add(headGrad)
 		if err != nil {
-			return nil, fmt.Errorf("failed to accumulate gradient from head %s: %w", headID, err)
+			return nil, fmt.Errorf("network learn: failed to accumulate gradient from head %s: %w", headID, err)
 		}
 
 	}
@@ -192,7 +217,7 @@ func (n *Network) Learn(input *Tensor, objectives LearningObjectives, optimizer 
 		for i := range slices.Backward(n.bodyLayers) {
 			bodyGrad, err = n.bodyLayers[i].Backward(bodyGrad)
 			if err != nil {
-				return nil, fmt.Errorf("body layer %d backward failed: %w", i, err)
+				return nil, fmt.Errorf("network learn: body layer %d backward failed: %w", i, err)
 			}
 		}
 	}
@@ -200,14 +225,14 @@ func (n *Network) Learn(input *Tensor, objectives LearningObjectives, optimizer 
 	// Apply gradients
 	for i := range n.bodyLayers {
 		if err := n.bodyLayers[i].ApplyGradients(optimizer); err != nil {
-			return nil, fmt.Errorf("applying body layers gradients failed: %w", err)
+			return nil, fmt.Errorf("network learn: applying body layers gradients failed: %w", err)
 		}
 	}
 
 	for headID, head := range n.outputHeads {
 		for i := range head.headLayers {
 			if err := head.headLayers[i].ApplyGradients(optimizer); err != nil {
-				return nil, fmt.Errorf("applying body layers gradients failed for head %s: %w", headID, err)
+				return nil, fmt.Errorf("network learn: applying body layers gradients failed for head %s: %w", headID, err)
 			}
 		}
 	}
@@ -226,6 +251,7 @@ func (n *Network) ModelDTO() *ModelDTO {
 			Signature: n.signature,
 		},
 		Specification: &SpecificationDTO{
+			InputShape:  n.inputShape,
 			BodyLayers:  make([]*LayerSpecificationDTO, 0, len(n.bodyLayers)),
 			OutputHeads: make(map[HeadID]*HeadSpecificationDTO, len(n.outputHeads)),
 		},
