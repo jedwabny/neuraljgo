@@ -5,26 +5,34 @@ import (
 )
 
 type Builder struct {
-	network   Network
-	inputSize int
-	buildErr  error
+	network    *Network
+	builderErr error
 }
 
-func NewBuilder(signature string, inputSize int) *Builder {
-	return &Builder{
-		network: Network{
-			signature:   signature,
-			bodyLayers:  make([]Layer, 0, 10),
-			outputHeads: make(map[HeadID]*Head, 5),
-		},
-		inputSize: inputSize,
-		buildErr:  nil,
+// NewBuilder creates a Network builder with the given signature and input shape of the Network.
+//
+// An input shape represents the shape of a single input sample, excluding any batch dimension.
+//
+// The builder uses the total number of elements represented by the input shape
+// to configure an input size of a first layer. If a layer, such as a dense layer,
+// requires a vector as input a flatten layer must be added before it
+// when the input is multidimensional <= NOT IMPLEMENTED YET!
+func NewBuilder(signature string, inputShape Shape) *Builder {
+	builder := &Builder{}
+
+	network, err := NewNetwork(signature, inputShape)
+	if err != nil {
+		builder.setBuilderError(err)
+	} else {
+		builder.network = network
 	}
+
+	return builder
 }
 
 func (b *Builder) Build() (*Network, error) {
-	if !b.isValidStack() {
-		return nil, b.getStackError()
+	if err := b.validateBuilderState(); err != nil {
+		return nil, err
 	}
 
 	if len(b.network.bodyLayers) == 0 {
@@ -43,7 +51,7 @@ func (b *Builder) Build() (*Network, error) {
 
 	b.network.Reset()
 
-	return &b.network, nil
+	return b.network, nil
 }
 
 func BuildFromModel(modelDTO *ModelDTO) (*Network, error) {
@@ -66,11 +74,13 @@ func BuildFromModel(modelDTO *ModelDTO) (*Network, error) {
 
 	// Process through the builder
 	signature := modelDTO.Metadata.Signature
-	inputSize := modelDTO.Specification.BodyLayers[0].InputSize
+	inputShape := modelDTO.Specification.InputShape
 
-	builder := NewBuilder(signature, inputSize)
+	builder := NewBuilder(signature, inputShape)
 
 	for i, l := range modelDTO.Specification.BodyLayers {
+		inputSize := NewShape(l.InputShape...).Size()
+		outputSize := NewShape(l.OutputShape...).Size()
 		if l.Activation == nil || l.Activation.TypeID == "" {
 			return nil, fmt.Errorf("undefined activation type ID")
 		}
@@ -80,15 +90,15 @@ func BuildFromModel(modelDTO *ModelDTO) (*Network, error) {
 		}
 		switch t := l.TypeID; t {
 		case DenseLayerTypeID:
-			if len(modelDTO.Parameters.BodyLayers[i].Weights) != l.OutputSize*l.InputSize {
+			if len(modelDTO.Parameters.BodyLayers[i].Weights) != outputSize*inputSize {
 				return nil, fmt.Errorf("model contains layer weights size not matching specification: %d != %d",
-					len(modelDTO.Parameters.BodyLayers[i].Weights), l.OutputSize*l.InputSize)
+					len(modelDTO.Parameters.BodyLayers[i].Weights), outputSize*inputSize)
 			}
-			if len(modelDTO.Parameters.BodyLayers[i].Biases) != l.OutputSize {
+			if len(modelDTO.Parameters.BodyLayers[i].Biases) != outputSize {
 				return nil, fmt.Errorf("model contains layer biases size not matching specification: %d != %d",
-					len(modelDTO.Parameters.BodyLayers[i].Biases), l.OutputSize)
+					len(modelDTO.Parameters.BodyLayers[i].Biases), outputSize)
 			}
-			builder.AddDenseLayer(l.OutputSize, activation)
+			builder.AddDenseLayer(outputSize, activation)
 			createdLayer := builder.leadingBodyLayer().(*DenseLayer)
 			createdLayer.weights.data = append([]float64(nil), modelDTO.Parameters.BodyLayers[i].Weights...)
 			createdLayer.biases.data = append([]float64(nil), modelDTO.Parameters.BodyLayers[i].Biases...)
@@ -116,6 +126,8 @@ func BuildFromModel(modelDTO *ModelDTO) (*Network, error) {
 		builder.AddHead(hID)
 
 		for i, hl := range hSpec.HeadLayers {
+			inputSize := NewShape(hl.InputShape...).Size()
+			outputSize := NewShape(hl.OutputShape...).Size()
 			if hl.Activation == nil || hl.Activation.TypeID == "" {
 				return nil, fmt.Errorf("undefined activation type ID in layers of head: %s", hID)
 			}
@@ -125,15 +137,15 @@ func BuildFromModel(modelDTO *ModelDTO) (*Network, error) {
 			}
 			switch t := hl.TypeID; t {
 			case DenseLayerTypeID:
-				if len(hParams.HeadLayers[i].Weights) != hl.OutputSize*hl.InputSize {
+				if len(hParams.HeadLayers[i].Weights) != outputSize*inputSize {
 					return nil, fmt.Errorf("model contains layer weights size not matching specification: %d != %d, head: %s",
-						len(hParams.HeadLayers[i].Weights), hl.OutputSize*hl.InputSize, hID)
+						len(hParams.HeadLayers[i].Weights), outputSize*inputSize, hID)
 				}
-				if len(hParams.HeadLayers[i].Biases) != hl.OutputSize {
+				if len(hParams.HeadLayers[i].Biases) != outputSize {
 					return nil, fmt.Errorf("model contains layer biases size not matching specification: %d != %d, head: %s",
-						len(hParams.HeadLayers[i].Biases), hl.OutputSize, hID)
+						len(hParams.HeadLayers[i].Biases), outputSize, hID)
 				}
-				builder.AddHeadDenseLayer(hID, hl.OutputSize, activation)
+				builder.AddHeadDenseLayer(hID, outputSize, activation)
 				createdHeadLayer := builder.leadingHeadLayer(hID).(*DenseLayer)
 				createdHeadLayer.weights.data = append([]float64(nil), hParams.HeadLayers[i].Weights...)
 				createdHeadLayer.biases.data = append([]float64(nil), hParams.HeadLayers[i].Biases...)
@@ -148,25 +160,25 @@ func BuildFromModel(modelDTO *ModelDTO) (*Network, error) {
 		}
 	}
 
-	if !builder.isValidStack() {
-		return nil, builder.getStackError()
+	if err := builder.validateBuilderState(); err != nil {
+		return nil, err
 	}
 
-	return &builder.network, nil
+	return builder.network, nil
 }
 
 func (b *Builder) AddDenseLayer(size int, activation Activation) *Builder {
-	if !b.isValidStack() {
+	if !b.isValidBuilderState() {
 		return b
 	}
 	if len(b.network.outputHeads) != 0 {
-		b.setInvalidStack(fmt.Errorf("attempted to add body layer after head"))
+		b.setBuilderError(fmt.Errorf("attempted to add body layer after head"))
 		return b
 	}
 
 	layer, err := NewDenseLayer(b.leadingBodyLayerSize(), size, activation)
 	if err != nil {
-		b.setInvalidStack(err)
+		b.setBuilderError(err)
 		return b
 	}
 
@@ -176,11 +188,11 @@ func (b *Builder) AddDenseLayer(size int, activation Activation) *Builder {
 }
 
 func (b *Builder) AddHead(headID HeadID) *Builder {
-	if !b.isValidStack() {
+	if !b.isValidBuilderState() {
 		return b
 	}
 	if len(b.network.bodyLayers) == 0 {
-		b.setInvalidStack(fmt.Errorf("attempted to add output head to network without body layers"))
+		b.setBuilderError(fmt.Errorf("attempted to add output head to network without body layers"))
 		return b
 	}
 
@@ -191,13 +203,13 @@ func (b *Builder) AddHead(headID HeadID) *Builder {
 }
 
 func (b *Builder) AddHeadDenseLayer(headID HeadID, size int, activation Activation) *Builder {
-	if !b.isValidStack() {
+	if !b.isValidBuilderState() {
 		return b
 	}
 
 	head, ok := b.network.outputHeads[headID]
 	if !ok {
-		b.setInvalidStack(fmt.Errorf("attempted to add layer to unknown head '%s'", headID))
+		b.setBuilderError(fmt.Errorf("attempted to add layer to unknown head '%s'", headID))
 		return b
 	}
 
@@ -209,7 +221,7 @@ func (b *Builder) AddHeadDenseLayer(headID HeadID, size int, activation Activati
 		layer, layerErr = NewDenseLayer(b.leadingHeadLayerSize(headID), size, activation)
 	}
 	if layerErr != nil {
-		b.setInvalidStack(layerErr)
+		b.setBuilderError(layerErr)
 		return b
 	}
 
@@ -230,13 +242,13 @@ func (b *Builder) AddHeadDenseLayer(headID HeadID, size int, activation Activati
 // Its learning objective must use a compatible loss, such as CrossEntropyLoss, but not SoftmaxCrossEntropyLoss.
 // Softmax as a layer is not synonymous with output processing.
 func (b *Builder) AddHeadSoftmaxLayer(headID HeadID) *Builder {
-	if !b.isValidStack() {
+	if !b.isValidBuilderState() {
 		return b
 	}
 
 	head, ok := b.network.outputHeads[headID]
 	if !ok {
-		b.setInvalidStack(fmt.Errorf("attempted to add layer to unknown output head '%s'", headID))
+		b.setBuilderError(fmt.Errorf("attempted to add layer to unknown output head '%s'", headID))
 		return b
 	}
 
@@ -248,34 +260,32 @@ func (b *Builder) AddHeadSoftmaxLayer(headID HeadID) *Builder {
 		layer, layerErr = NewSoftmaxLayer(b.leadingHeadLayerSize(headID))
 	}
 	if layerErr != nil {
-		b.setInvalidStack(layerErr)
+		b.setBuilderError(layerErr)
 		return b
 	}
 
 	head.headLayers = append(head.headLayers, layer)
 
-	// TODO: no activation, initialization needed
-
 	return b
 }
 
 // WithHeadSoftmaxTransformation enables Softmax transformation which converts
-// a head's raw output into the prediction returned by the network.
+// a head's raw output into the probability distribution.
 // It is applied during prediction and is not part of the ordinary backward graph.
 //
 // Softmax transformation affects how the head's learning output is
 // interpreted and therefore which Loss is compatible with the head.
-// Precisely, Softmax prediction transformation is paired with SoftmaxCrossEntropyLoss,
+// Precisely, Softmax transformation is paired with SoftmaxCrossEntropyLoss,
 // which operates directly on the raw logits.
 // The transformation itself is not executed during backward propagation.
 func (b *Builder) WithHeadSoftmaxTransformation(headID HeadID) *Builder {
-	if !b.isValidStack() {
+	if !b.isValidBuilderState() {
 		return b
 	}
 
 	head, ok := b.network.outputHeads[headID]
 	if !ok {
-		b.setInvalidStack(fmt.Errorf("attempted to enable Softmax transformation for unknown output head '%s'", headID))
+		b.setBuilderError(fmt.Errorf("attempted to enable Softmax transformation for unknown output head '%s'", headID))
 		return b
 	}
 
@@ -287,7 +297,7 @@ func (b *Builder) WithHeadSoftmaxTransformation(headID HeadID) *Builder {
 		layer, layerErr = NewSoftmaxLayer(b.leadingHeadLayerSize(headID))
 	}
 	if layerErr != nil {
-		b.setInvalidStack(layerErr)
+		b.setBuilderError(layerErr)
 		return b
 	}
 
@@ -309,20 +319,16 @@ func newActivationByTypeID(typeID ActivationTypeID) (Activation, error) {
 	}
 }
 
-func (b *Builder) setInvalidStack(err error) {
-	b.buildErr = err
+func (b *Builder) setBuilderError(err error) {
+	b.builderErr = err
 }
 
-func (b *Builder) getStackError() error {
-	return b.buildErr
+func (b *Builder) validateBuilderState() error {
+	return b.builderErr
 }
 
-func (b *Builder) isValidStack() bool {
-	if b.buildErr == nil {
-		return true
-	}
-
-	return false
+func (b *Builder) isValidBuilderState() bool {
+	return b.validateBuilderState() == nil
 }
 
 func (b *Builder) leadingBodyLayer() Layer {
@@ -335,10 +341,10 @@ func (b *Builder) leadingBodyLayer() Layer {
 
 func (b *Builder) leadingBodyLayerSize() int {
 	if len(b.network.bodyLayers) == 0 {
-		return b.inputSize
+		return b.network.inputShape.Size()
 	}
 
-	return b.network.bodyLayers[len(b.network.bodyLayers)-1].OutputSize()
+	return b.network.bodyLayers[len(b.network.bodyLayers)-1].OutputShape().Size()
 }
 
 func (b *Builder) leadingHeadLayer(headID HeadID) Layer {
@@ -356,5 +362,5 @@ func (b *Builder) leadingHeadLayerSize(headID HeadID) int {
 		return b.leadingBodyLayerSize()
 	}
 
-	return head.headLayers[len(head.headLayers)-1].OutputSize()
+	return head.headLayers[len(head.headLayers)-1].OutputShape().Size()
 }

@@ -13,14 +13,14 @@ func requireLossInput(predicted *Tensor, target *Tensor) error {
 	if predicted == nil {
 		return fmt.Errorf("predicted/logits tensor is nil")
 	}
-	if err := predicted.RequireRank(1, "predicted/logits tensor"); err != nil {
-		return err
+	if err := predicted.shape.validateWithRank(1); err != nil {
+		return fmt.Errorf("predicted/logits tensor: %w", err)
 	}
 	if target == nil {
 		return fmt.Errorf("target tensor is nil")
 	}
-	if err := target.RequireRank(1, "target tensor"); err != nil {
-		return err
+	if err := target.shape.validateWithRank(1); err != nil {
+		return fmt.Errorf("target tensor: %w", err)
 	}
 	if predicted.Size() != target.Size() {
 		return fmt.Errorf("predicted/logits and target tensors size mismatch: %d != %d", predicted.Size(), target.Size())

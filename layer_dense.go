@@ -66,37 +66,19 @@ func NewDenseLayer(inputSize int, outputSize int, activation Activation) (*Dense
 	return layer, nil
 }
 
-func (l *DenseLayer) InputSize() int {
-	return l.inputSize
-}
-
-func (l *DenseLayer) OutputSize() int {
-	return l.outputSize
-}
-
-func (l *DenseLayer) Reset() error {
-	l.trainingCache = nil
-
-	if err := l.initializer.Initialize(l.weights, l.biases); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func (l *DenseLayer) Forward(input *Tensor, storeTrainingCache bool) (*Tensor, error) {
 	l.trainingCache = nil
 
 	if input == nil {
 		return nil, fmt.Errorf("dense layer forward: input tensor is nil")
 	}
-	if err := input.RequireRank(1, "dense layer forward"); err != nil {
-		return nil, err
+	if err := input.shape.validateWithRank(1); err != nil {
+		return nil, fmt.Errorf("dense layer forward: %w", err)
 	}
-	if input.Size() != l.InputSize() {
+	if input.Size() != l.inputSize {
 		return nil, fmt.Errorf(
 			"dense layer forward: input size mismatch: expected %d, got %d with shape %v",
-			l.InputSize(), input.Size(), input.Shape(),
+			l.inputSize, input.Size(), input.Shape(),
 		)
 	}
 
@@ -105,26 +87,26 @@ func (l *DenseLayer) Forward(input *Tensor, storeTrainingCache bool) (*Tensor, e
 		return nil, err
 	}
 
-	outputVector := make([]float64, l.OutputSize())
+	outputVector := make([]float64, l.outputSize)
 
 	w := l.weights.data
-	if len(w) != (l.OutputSize() * l.InputSize()) {
+	if len(w) != (l.outputSize * l.inputSize) {
 		return nil, fmt.Errorf(
 			"dense layer forward: weights size mismatch, expected %d*%d=%d, has %d",
-			l.OutputSize(), l.InputSize(), l.OutputSize()*l.InputSize(), len(w),
+			l.outputSize, l.inputSize, l.outputSize*l.inputSize, len(w),
 		)
 	}
 	b := l.biases.data
-	if len(b) != l.OutputSize() {
+	if len(b) != l.outputSize {
 		return nil, fmt.Errorf(
 			"dense layer forward: biases size mismatch, expected %d, has %d",
-			l.OutputSize(), len(b),
+			l.outputSize, len(b),
 		)
 	}
-	for o := range l.OutputSize() {
+	for o := range l.outputSize {
 		z := b[o]
 		for i, x := range inputVector {
-			z += w[o*l.InputSize()+i] * x
+			z += w[o*l.inputSize+i] * x
 		}
 
 		a := l.activation.Activate(z)
@@ -149,13 +131,13 @@ func (l *DenseLayer) Backward(outputGrad *Tensor) (*Tensor, error) {
 	if outputGrad == nil {
 		return nil, fmt.Errorf("dense layer backward: output gradient tensor is nil")
 	}
-	if err := outputGrad.RequireRank(1, "dense layer backward"); err != nil {
-		return nil, err
+	if err := outputGrad.shape.validateWithRank(1); err != nil {
+		return nil, fmt.Errorf("dense layer backward: %w", err)
 	}
-	if outputGrad.Size() != l.OutputSize() {
+	if outputGrad.Size() != l.outputSize {
 		return nil, fmt.Errorf(
 			"dense layer backward: gradient size mismatch: expected %d, got %d with shape %v",
-			l.OutputSize(), outputGrad.Size(), outputGrad.Shape(),
+			l.outputSize, outputGrad.Size(), outputGrad.Shape(),
 		)
 	}
 
@@ -179,15 +161,15 @@ func (l *DenseLayer) Backward(outputGrad *Tensor) (*Tensor, error) {
 
 	l.weightGradient.SetZeros()
 	l.biasGradient.SetZeros()
-	inputGradVector := make([]float64, l.InputSize())
+	inputGradVector := make([]float64, l.inputSize)
 
-	for o := range l.OutputSize() {
+	for o := range l.outputSize {
 		a := cachedOutputVector[o]
 		activationGrad := l.activation.Derivative(a)
 		delta := outputGradVector[o] * activationGrad
 
-		for i := range l.InputSize() {
-			weightIndex := o*l.InputSize() + i
+		for i := range l.inputSize {
+			weightIndex := o*l.inputSize + i
 			inputGradVector[i] += w[weightIndex] * delta
 			l.weightGradient.data[weightIndex] = delta * cachedInputVector[i]
 		}
@@ -232,8 +214,8 @@ func (l *DenseLayer) TrainingCache() *TrainingCache {
 func (l *DenseLayer) SpecificationDTO() *LayerSpecificationDTO {
 	return &LayerSpecificationDTO{
 		TypeID:      DenseLayerTypeID,
-		InputSize:   l.InputSize(),
-		OutputSize:  l.OutputSize(),
+		InputShape:  l.InputShape(),
+		OutputShape: l.OutputShape(),
 		Activation:  l.activation.ModelDTO(),
 		Initializer: l.initializer.ModelDTO(),
 	}
@@ -245,3 +227,23 @@ func (l *DenseLayer) ParametersDTO() *LayerParametersDTO {
 		Biases:  l.biases.Data(),
 	}
 }
+
+func (l *DenseLayer) InputShape() Shape {
+	return NewShape(l.inputSize)
+}
+
+func (l *DenseLayer) OutputShape() Shape {
+	return NewShape(l.outputSize)
+}
+
+func (l *DenseLayer) Reset() error {
+	l.trainingCache = nil
+
+	if err := l.initializer.Initialize(l.weights, l.biases); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var _ Layer = (*DenseLayer)(nil)

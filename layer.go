@@ -1,18 +1,17 @@
 package neuraljgo
 
 type Layer interface {
-	InputSize() int
-	OutputSize() int
-
-	Reset() error
-
-	// Forward computes the output of the layer for the given input vector.
+	// Forward computes the output of the layer for the given input tensor.
 	//
-	// The input must be a rank-1 tensor with a size equal to InputSize().
-	// The returned tensor is always rank-1 with a size equal to OutputSize().
+	// Each layer defines its own input and output shape requirements.
 	//
 	// If storeTrainingCache is true, the layer stores the data required by Backward.
 	Forward(input *Tensor, storeTrainingCache bool) (*Tensor, error)
+
+	// Backward propagates the output gradient through the layer.
+	//
+	// The output gradient must have the same shape as the tensor returned by Forward.
+	// The returned gradient has the same shape as the input tensor passed to Forward.
 	Backward(outputGrad *Tensor) (*Tensor, error)
 
 	ApplyGradients(optimizer Optimizer) error
@@ -21,6 +20,14 @@ type Layer interface {
 
 	SpecificationDTO() *LayerSpecificationDTO
 	ParametersDTO() *LayerParametersDTO
+
+	// InputShape returns a copy of the input shape.
+	InputShape() Shape
+
+	// OutputShape returns a copy of the output shape.
+	OutputShape() Shape
+
+	Reset() error
 }
 
 type TrainingCache struct {
