@@ -21,7 +21,7 @@ func NewNetwork(signature string, inputShape Shape) (*Network, error) {
 		return nil, fmt.Errorf("network new: input shape is nil")
 	}
 
-	if err := inputShape.validate(0, 1); err != nil {
+	if err := inputShape.validateWithMaxTensorRank(); err != nil {
 		return nil, fmt.Errorf("network new: input shape: %w", err)
 	}
 
