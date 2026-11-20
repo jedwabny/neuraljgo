@@ -1,6 +1,9 @@
 package neuraljgo
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+)
 
 // SGDOptimizer implements standard stochastic gradient descent.
 type SGDOptimizer struct {
@@ -9,13 +12,31 @@ type SGDOptimizer struct {
 
 // NewSGDOptimizer creates an SGD optimizer with the specified learning rate.
 func NewSGDOptimizer(learningRate float64) (*SGDOptimizer, error) {
-	if learningRate <= 0 {
-		return nil, fmt.Errorf("sgd optimizer: learning rate must be greater than zero, got %g", learningRate)
+	optimizer := SGDOptimizer{}
+
+	if err := optimizer.SetLearningRate(learningRate); err != nil {
+		return nil, err
 	}
 
-	return &SGDOptimizer{
-		learningRate: learningRate,
-	}, nil
+	return &optimizer, nil
+}
+
+// LearningRate returns the current learning rate.
+func (o *SGDOptimizer) LearningRate() float64 {
+	return o.learningRate
+}
+
+// SetLearningRate updates the learning rate.
+//
+// It returns an error if the learning rate is not greater than zero.
+func (o *SGDOptimizer) SetLearningRate(learningRate float64) error {
+	if math.IsNaN(learningRate) || math.IsInf(learningRate, 0) || learningRate <= 0 {
+		return fmt.Errorf("sgd optimizer: learning rate must be finite and greater than zero, got %f", learningRate)
+	}
+
+	o.learningRate = learningRate
+
+	return nil
 }
 
 // Update applies one SGD update to parameter using gradient:
