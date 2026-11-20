@@ -354,3 +354,11 @@ func (t *Tensor) Softmax() (*Tensor, error) {
 		data:  result,
 	}, nil
 }
+
+// Flatten returns a new tensor after flattening into a rank 1 (vector)
+func (t *Tensor) Flatten() *Tensor {
+	return &Tensor{
+		shape: NewShape(t.Size()),
+		data:  append([]float64(nil), t.data...),
+	}
+}

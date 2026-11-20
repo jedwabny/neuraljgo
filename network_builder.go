@@ -187,6 +187,27 @@ func (b *Builder) AddDenseLayer(size int, activation Activation) *Builder {
 	return b
 }
 
+func (b *Builder) AddFlattenLayer(inputShape Shape) *Builder {
+	if !b.isValidBuilderState() {
+		return b
+	}
+
+	if len(b.network.outputHeads) != 0 {
+		b.setBuilderError(fmt.Errorf("attempted to add body layer after head"))
+		return b
+	}
+
+	layer, err := NewFlattenLayer(inputShape)
+	if err != nil {
+		b.setBuilderError(err)
+		return b
+	}
+
+	b.network.bodyLayers = append(b.network.bodyLayers, layer)
+
+	return b
+}
+
 func (b *Builder) AddHead(headID HeadID) *Builder {
 	if !b.isValidBuilderState() {
 		return b
