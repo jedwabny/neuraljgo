@@ -15,8 +15,8 @@ type Builder struct {
 //
 // The builder uses the total number of elements represented by the input shape
 // to configure an input size of a first layer. If a layer, such as a dense layer,
-// requires a vector as input a flatten layer must be added before it
-// when the input is multidimensional <= NOT IMPLEMENTED YET!
+// requires a vector as input and the input of network is multidimensional
+// a flatten layer must be added before it.
 func NewBuilder(signature string, inputShape Shape) *Builder {
 	builder := &Builder{}
 
@@ -187,7 +187,12 @@ func (b *Builder) AddDenseLayer(size int, activation Activation) *Builder {
 	return b
 }
 
-func (b *Builder) AddFlattenLayer(inputShape Shape) *Builder {
+// AddFlattenLayer adds a Flatten layer to the network body.
+//
+// Its input shape is taken from the input shape of the network
+// or from the output shape of the preceding layer.
+// The output shape is derived from an input shape.
+func (b *Builder) AddFlattenLayer() *Builder {
 	if !b.isValidBuilderState() {
 		return b
 	}
@@ -197,7 +202,7 @@ func (b *Builder) AddFlattenLayer(inputShape Shape) *Builder {
 		return b
 	}
 
-	layer, err := NewFlattenLayer(inputShape)
+	layer, err := NewFlattenLayer(b.leadingBodyLayerShape())
 	if err != nil {
 		b.setBuilderError(err)
 		return b
@@ -358,6 +363,14 @@ func (b *Builder) leadingBodyLayer() Layer {
 	}
 
 	return b.network.bodyLayers[len(b.network.bodyLayers)-1]
+}
+
+func (b *Builder) leadingBodyLayerShape() Shape {
+	if len(b.network.bodyLayers) == 0 {
+		return b.network.inputShape
+	}
+
+	return b.network.bodyLayers[len(b.network.bodyLayers)-1].OutputShape()
 }
 
 func (b *Builder) leadingBodyLayerSize() int {

@@ -72,13 +72,18 @@ func (l *DenseLayer) Forward(input *Tensor, storeTrainingCache bool) (*Tensor, e
 	if input == nil {
 		return nil, fmt.Errorf("dense layer forward: input tensor is nil")
 	}
-	if err := input.shape.validateWithRank(1); err != nil {
-		return nil, fmt.Errorf("dense layer forward: %w", err)
-	}
-	if input.Size() != l.inputSize {
+
+	if !input.Shape().Equal(l.InputShape()) {
 		return nil, fmt.Errorf(
-			"dense layer forward: input size mismatch: expected %d, got %d with shape %v",
-			l.inputSize, input.Size(), input.Shape(),
+			"dense layer forward: input shape mismatch: expected %v, got %v",
+			l.InputShape(), input.Shape(),
+		)
+	}
+
+	if input.DataSize() != l.inputSize {
+		return nil, fmt.Errorf(
+			"dense layer forward: input data size mismatch: expected %d, got %d",
+			l.inputSize, input.DataSize(),
 		)
 	}
 
@@ -124,20 +129,25 @@ func (l *DenseLayer) Forward(input *Tensor, storeTrainingCache bool) (*Tensor, e
 }
 
 func (l *DenseLayer) Backward(outputGrad *Tensor) (*Tensor, error) {
-	if l.trainingCache == nil {
+	if l.trainingCache == nil || l.trainingCache.Input == nil || l.trainingCache.Output == nil {
 		return nil, fmt.Errorf("dense layer backward: training cache is empty")
 	}
 
 	if outputGrad == nil {
 		return nil, fmt.Errorf("dense layer backward: output gradient tensor is nil")
 	}
-	if err := outputGrad.shape.validateWithRank(1); err != nil {
-		return nil, fmt.Errorf("dense layer backward: %w", err)
-	}
-	if outputGrad.Size() != l.outputSize {
+
+	if !outputGrad.Shape().Equal(l.OutputShape()) {
 		return nil, fmt.Errorf(
-			"dense layer backward: gradient size mismatch: expected %d, got %d with shape %v",
-			l.outputSize, outputGrad.Size(), outputGrad.Shape(),
+			"dense layer backward: gradient shape mismatch: expected %v, got %v",
+			l.OutputShape(), outputGrad.Shape(),
+		)
+	}
+
+	if outputGrad.DataSize() != l.outputSize {
+		return nil, fmt.Errorf(
+			"dense layer backward: gradient data size mismatch: expected %d, got %d",
+			l.outputSize, outputGrad.DataSize(),
 		)
 	}
 
