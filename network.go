@@ -8,14 +8,13 @@ import (
 type Network struct {
 	signature   string
 	inputShape  Shape
-	bodyLayers  []Layer
-	outputHeads map[HeadID]*Head
+	BodyLayers  []Layer
+	OutputHeads map[HeadID]*Head
 }
 
 // NewNetwork creates a Network with given signature and input shape.
 //
-// The body layers and heads map are empty and in current implementation
-// the Builder exposes the only way to build the complete network.
+// The body layers and heads map are initially empty.
 func NewNetwork(signature string, inputShape Shape) (*Network, error) {
 	if inputShape == nil {
 		return nil, fmt.Errorf("network new: input shape is nil")
@@ -28,8 +27,8 @@ func NewNetwork(signature string, inputShape Shape) (*Network, error) {
 	network := Network{
 		signature:   signature,
 		inputShape:  inputShape.Clone(),
-		bodyLayers:  make([]Layer, 0, 10),      // arbitrary starting capacity
-		outputHeads: make(map[HeadID]*Head, 5), // arbitrary starting capacity
+		BodyLayers:  make([]Layer, 0, 10),      // arbitrary initial capacity
+		OutputHeads: make(map[HeadID]*Head, 5), // arbitrary initial capacity
 	}
 
 	return &network, nil
@@ -44,10 +43,10 @@ func (n *Network) InputShape() Shape {
 }
 
 func (n *Network) Reset() {
-	for _, layer := range n.bodyLayers {
+	for _, layer := range n.BodyLayers {
 		layer.Reset()
 	}
-	for _, head := range n.outputHeads {
+	for _, head := range n.OutputHeads {
 		head.Reset()
 	}
 }
@@ -74,16 +73,16 @@ func (n *Network) forward(input *Tensor, storeTrainingCache bool) (map[HeadID]*T
 	}
 
 	x := input.Clone()
-	for _, layer := range n.bodyLayers {
+	for _, layer := range n.BodyLayers {
 		x, err = layer.Forward(x, storeTrainingCache)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	predictions := make(map[HeadID]*Tensor, len(n.outputHeads))
+	predictions := make(map[HeadID]*Tensor, len(n.OutputHeads))
 
-	for headID, head := range n.outputHeads {
+	for headID, head := range n.OutputHeads {
 		headPred, err := head.Forward(x, storeTrainingCache)
 		if err != nil {
 			return nil, err
@@ -107,7 +106,7 @@ func (n *Network) Learn(input *Tensor, objectives LearningObjectives, optimizer 
 
 	// Validate learning objectives to prevent partial updates.
 	for headID, headObjective := range objectives {
-		head, ok := n.outputHeads[headID]
+		head, ok := n.OutputHeads[headID]
 		if !ok {
 			return nil, fmt.Errorf("network learn: no such head in the network: %s", headID)
 		}
@@ -120,7 +119,7 @@ func (n *Network) Learn(input *Tensor, objectives LearningObjectives, optimizer 
 		}
 
 		if _, ok := headObjective.Loss.(SoftmaxCrossEntropyLoss); ok {
-			if _, ok := head.headLayers[len(head.headLayers)-1].(*SoftmaxLayer); ok {
+			if _, ok := head.HeadLayers[len(head.HeadLayers)-1].(*SoftmaxLayer); ok {
 				return nil, fmt.Errorf(
 					"network learn: using SoftmaxCrossEntropyLoss is invalid for Softmax configured as a layer; use CrossEntropyLoss or another compatible loss",
 				)
@@ -144,7 +143,7 @@ func (n *Network) Learn(input *Tensor, objectives LearningObjectives, optimizer 
 
 	// Validate forward results to prevent partial updates.
 	for headID := range objectives {
-		head, _ := n.outputHeads[headID]
+		head, _ := n.OutputHeads[headID]
 		_, ok := predictions[headID]
 		if !ok {
 			return nil, fmt.Errorf("network learn: prediction for learning objective head %s is missing", headID)
@@ -166,7 +165,7 @@ func (n *Network) Learn(input *Tensor, objectives LearningObjectives, optimizer 
 	var bodyGrad *Tensor = nil
 
 	for headID, headObjective := range objectives {
-		head, _ := n.outputHeads[headID]
+		head, _ := n.OutputHeads[headID]
 		headPrediction, _ := predictions[headID]
 
 		var lossInput *Tensor
@@ -214,8 +213,8 @@ func (n *Network) Learn(input *Tensor, objectives LearningObjectives, optimizer 
 
 	// Back-propagate the combined gradient through the body.
 	if bodyGrad != nil {
-		for i := range slices.Backward(n.bodyLayers) {
-			bodyGrad, err = n.bodyLayers[i].Backward(bodyGrad)
+		for i := range slices.Backward(n.BodyLayers) {
+			bodyGrad, err = n.BodyLayers[i].Backward(bodyGrad)
 			if err != nil {
 				return nil, fmt.Errorf("network learn: body layer %d backward failed: %w", i, err)
 			}
@@ -223,15 +222,15 @@ func (n *Network) Learn(input *Tensor, objectives LearningObjectives, optimizer 
 	}
 
 	// Apply gradients
-	for i := range n.bodyLayers {
-		if err := n.bodyLayers[i].ApplyGradients(optimizer); err != nil {
+	for i := range n.BodyLayers {
+		if err := n.BodyLayers[i].ApplyGradients(optimizer); err != nil {
 			return nil, fmt.Errorf("network learn: applying body layers gradients failed: %w", err)
 		}
 	}
 
-	for headID, head := range n.outputHeads {
-		for i := range head.headLayers {
-			if err := head.headLayers[i].ApplyGradients(optimizer); err != nil {
+	for headID, head := range n.OutputHeads {
+		for i := range head.HeadLayers {
+			if err := head.HeadLayers[i].ApplyGradients(optimizer); err != nil {
 				return nil, fmt.Errorf("network learn: applying body layers gradients failed for head %s: %w", headID, err)
 			}
 		}
@@ -252,28 +251,28 @@ func (n *Network) ModelDTO() *ModelDTO {
 		},
 		Specification: &SpecificationDTO{
 			InputShape:  n.inputShape,
-			BodyLayers:  make([]*LayerSpecificationDTO, 0, len(n.bodyLayers)),
-			OutputHeads: make(map[HeadID]*HeadSpecificationDTO, len(n.outputHeads)),
+			BodyLayers:  make([]*LayerSpecificationDTO, 0, len(n.BodyLayers)),
+			OutputHeads: make(map[HeadID]*HeadSpecificationDTO, len(n.OutputHeads)),
 		},
 		Parameters: &ParametersDTO{
-			BodyLayers:  make([]*LayerParametersDTO, 0, len(n.bodyLayers)),
-			OutputHeads: make(map[HeadID]*HeadParametersDTO, len(n.outputHeads)),
+			BodyLayers:  make([]*LayerParametersDTO, 0, len(n.BodyLayers)),
+			OutputHeads: make(map[HeadID]*HeadParametersDTO, len(n.OutputHeads)),
 		},
 	}
 
-	for _, l := range n.bodyLayers {
+	for _, l := range n.BodyLayers {
 		model.Specification.BodyLayers = append(model.Specification.BodyLayers, l.SpecificationDTO())
 		model.Parameters.BodyLayers = append(model.Parameters.BodyLayers, l.ParametersDTO())
 	}
-	for hID, h := range n.outputHeads {
+	for hID, h := range n.OutputHeads {
 		headSpecificationDTO := &HeadSpecificationDTO{
-			HeadLayers:            make([]*LayerSpecificationDTO, 0, len(h.headLayers)),
+			HeadLayers:            make([]*LayerSpecificationDTO, 0, len(h.HeadLayers)),
 			SoftmaxTransformation: h.SoftmaxTransformation(),
 		}
 		headParametersDTO := &HeadParametersDTO{
-			HeadLayers: make([]*LayerParametersDTO, 0, len(h.headLayers)),
+			HeadLayers: make([]*LayerParametersDTO, 0, len(h.HeadLayers)),
 		}
-		for _, hl := range h.headLayers {
+		for _, hl := range h.HeadLayers {
 			headSpecificationDTO.HeadLayers = append(headSpecificationDTO.HeadLayers, hl.SpecificationDTO())
 			headParametersDTO.HeadLayers = append(headParametersDTO.HeadLayers, hl.ParametersDTO())
 		}

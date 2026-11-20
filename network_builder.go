@@ -35,15 +35,15 @@ func (b *Builder) Build() (*Network, error) {
 		return nil, err
 	}
 
-	if len(b.network.bodyLayers) == 0 {
+	if len(b.network.BodyLayers) == 0 {
 		return nil, fmt.Errorf("network has no body layers")
 	}
-	if len(b.network.outputHeads) == 0 {
+	if len(b.network.OutputHeads) == 0 {
 		return nil, fmt.Errorf("network has no at least one output head")
 	}
 
-	for headID, head := range b.network.outputHeads {
-		layersCount := len(head.headLayers)
+	for headID, head := range b.network.OutputHeads {
+		layersCount := len(head.HeadLayers)
 		if layersCount == 0 {
 			return nil, fmt.Errorf("network head '%s' has no layers", headID)
 		}
@@ -84,7 +84,7 @@ func BuildFromModel(modelDTO *ModelDTO) (*Network, error) {
 		if l.Activation == nil || l.Activation.TypeID == "" {
 			return nil, fmt.Errorf("undefined activation type ID")
 		}
-		activation, err := newActivationByTypeID(l.Activation.TypeID)
+		activation, err := NewActivationByTypeID(l.Activation.TypeID)
 		if err != nil {
 			return nil, err
 		}
@@ -131,7 +131,7 @@ func BuildFromModel(modelDTO *ModelDTO) (*Network, error) {
 			if hl.Activation == nil || hl.Activation.TypeID == "" {
 				return nil, fmt.Errorf("undefined activation type ID in layers of head: %s", hID)
 			}
-			activation, err := newActivationByTypeID(hl.Activation.TypeID)
+			activation, err := NewActivationByTypeID(hl.Activation.TypeID)
 			if err != nil {
 				return nil, err
 			}
@@ -171,7 +171,7 @@ func (b *Builder) AddDenseLayer(size int, activation Activation) *Builder {
 	if !b.isValidBuilderState() {
 		return b
 	}
-	if len(b.network.outputHeads) != 0 {
+	if len(b.network.OutputHeads) != 0 {
 		b.setBuilderError(fmt.Errorf("attempted to add body layer after head"))
 		return b
 	}
@@ -182,7 +182,7 @@ func (b *Builder) AddDenseLayer(size int, activation Activation) *Builder {
 		return b
 	}
 
-	b.network.bodyLayers = append(b.network.bodyLayers, layer)
+	b.network.BodyLayers = append(b.network.BodyLayers, layer)
 
 	return b
 }
@@ -197,7 +197,7 @@ func (b *Builder) AddFlattenLayer() *Builder {
 		return b
 	}
 
-	if len(b.network.outputHeads) != 0 {
+	if len(b.network.OutputHeads) != 0 {
 		b.setBuilderError(fmt.Errorf("attempted to add body layer after head"))
 		return b
 	}
@@ -208,7 +208,7 @@ func (b *Builder) AddFlattenLayer() *Builder {
 		return b
 	}
 
-	b.network.bodyLayers = append(b.network.bodyLayers, layer)
+	b.network.BodyLayers = append(b.network.BodyLayers, layer)
 
 	return b
 }
@@ -217,13 +217,13 @@ func (b *Builder) AddHead(headID HeadID) *Builder {
 	if !b.isValidBuilderState() {
 		return b
 	}
-	if len(b.network.bodyLayers) == 0 {
+	if len(b.network.BodyLayers) == 0 {
 		b.setBuilderError(fmt.Errorf("attempted to add output head to network without body layers"))
 		return b
 	}
 
 	head := NewHead()
-	b.network.outputHeads[headID] = head
+	b.network.OutputHeads[headID] = head
 
 	return b
 }
@@ -233,7 +233,7 @@ func (b *Builder) AddHeadDenseLayer(headID HeadID, size int, activation Activati
 		return b
 	}
 
-	head, ok := b.network.outputHeads[headID]
+	head, ok := b.network.OutputHeads[headID]
 	if !ok {
 		b.setBuilderError(fmt.Errorf("attempted to add layer to unknown head '%s'", headID))
 		return b
@@ -241,7 +241,7 @@ func (b *Builder) AddHeadDenseLayer(headID HeadID, size int, activation Activati
 
 	var layer *DenseLayer
 	var layerErr error
-	if len(head.headLayers) == 0 {
+	if len(head.HeadLayers) == 0 {
 		layer, layerErr = NewDenseLayer(b.leadingBodyLayerSize(), size, activation)
 	} else {
 		layer, layerErr = NewDenseLayer(b.leadingHeadLayerSize(headID), size, activation)
@@ -251,7 +251,7 @@ func (b *Builder) AddHeadDenseLayer(headID HeadID, size int, activation Activati
 		return b
 	}
 
-	head.headLayers = append(head.headLayers, layer)
+	head.HeadLayers = append(head.HeadLayers, layer)
 
 	return b
 }
@@ -272,7 +272,7 @@ func (b *Builder) AddHeadSoftmaxLayer(headID HeadID) *Builder {
 		return b
 	}
 
-	head, ok := b.network.outputHeads[headID]
+	head, ok := b.network.OutputHeads[headID]
 	if !ok {
 		b.setBuilderError(fmt.Errorf("attempted to add layer to unknown output head '%s'", headID))
 		return b
@@ -280,7 +280,7 @@ func (b *Builder) AddHeadSoftmaxLayer(headID HeadID) *Builder {
 
 	var layer *SoftmaxLayer
 	var layerErr error
-	if len(head.headLayers) == 0 {
+	if len(head.HeadLayers) == 0 {
 		layer, layerErr = NewSoftmaxLayer(b.leadingBodyLayerSize())
 	} else {
 		layer, layerErr = NewSoftmaxLayer(b.leadingHeadLayerSize(headID))
@@ -290,7 +290,7 @@ func (b *Builder) AddHeadSoftmaxLayer(headID HeadID) *Builder {
 		return b
 	}
 
-	head.headLayers = append(head.headLayers, layer)
+	head.HeadLayers = append(head.HeadLayers, layer)
 
 	return b
 }
@@ -309,7 +309,7 @@ func (b *Builder) WithHeadSoftmaxTransformation(headID HeadID) *Builder {
 		return b
 	}
 
-	head, ok := b.network.outputHeads[headID]
+	head, ok := b.network.OutputHeads[headID]
 	if !ok {
 		b.setBuilderError(fmt.Errorf("attempted to enable Softmax transformation for unknown output head '%s'", headID))
 		return b
@@ -317,7 +317,7 @@ func (b *Builder) WithHeadSoftmaxTransformation(headID HeadID) *Builder {
 
 	var layer *SoftmaxLayer
 	var layerErr error
-	if len(head.headLayers) == 0 {
+	if len(head.HeadLayers) == 0 {
 		layer, layerErr = NewSoftmaxLayer(b.leadingBodyLayerSize())
 	} else {
 		layer, layerErr = NewSoftmaxLayer(b.leadingHeadLayerSize(headID))
@@ -330,19 +330,6 @@ func (b *Builder) WithHeadSoftmaxTransformation(headID HeadID) *Builder {
 	head.softmaxTransformation = layer
 
 	return b
-}
-
-func newActivationByTypeID(typeID ActivationTypeID) (Activation, error) {
-	switch typeID {
-	case LinearActivationTypeID:
-		return LinearActivation{}, nil
-	case ReLUActivationTypeID:
-		return ReLUActivation{}, nil
-	case TanhActivationTypeID:
-		return TanhActivation{}, nil
-	default:
-		return nil, fmt.Errorf("unknown activation type ID: %s", typeID)
-	}
 }
 
 func (b *Builder) setBuilderError(err error) {
@@ -358,43 +345,43 @@ func (b *Builder) isValidBuilderState() bool {
 }
 
 func (b *Builder) leadingBodyLayer() Layer {
-	if len(b.network.bodyLayers) == 0 {
+	if len(b.network.BodyLayers) == 0 {
 		return nil
 	}
 
-	return b.network.bodyLayers[len(b.network.bodyLayers)-1]
+	return b.network.BodyLayers[len(b.network.BodyLayers)-1]
 }
 
 func (b *Builder) leadingBodyLayerShape() Shape {
-	if len(b.network.bodyLayers) == 0 {
+	if len(b.network.BodyLayers) == 0 {
 		return b.network.inputShape
 	}
 
-	return b.network.bodyLayers[len(b.network.bodyLayers)-1].OutputShape()
+	return b.network.BodyLayers[len(b.network.BodyLayers)-1].OutputShape()
 }
 
 func (b *Builder) leadingBodyLayerSize() int {
-	if len(b.network.bodyLayers) == 0 {
+	if len(b.network.BodyLayers) == 0 {
 		return b.network.inputShape.Size()
 	}
 
-	return b.network.bodyLayers[len(b.network.bodyLayers)-1].OutputShape().Size()
+	return b.network.BodyLayers[len(b.network.BodyLayers)-1].OutputShape().Size()
 }
 
 func (b *Builder) leadingHeadLayer(headID HeadID) Layer {
-	head, ok := b.network.outputHeads[headID]
-	if !ok || len(head.headLayers) == 0 {
+	head, ok := b.network.OutputHeads[headID]
+	if !ok || len(head.HeadLayers) == 0 {
 		return b.leadingBodyLayer()
 	}
 
-	return head.headLayers[len(head.headLayers)-1]
+	return head.HeadLayers[len(head.HeadLayers)-1]
 }
 
 func (b *Builder) leadingHeadLayerSize(headID HeadID) int {
-	head, ok := b.network.outputHeads[headID]
-	if !ok || len(head.headLayers) == 0 {
+	head, ok := b.network.OutputHeads[headID]
+	if !ok || len(head.HeadLayers) == 0 {
 		return b.leadingBodyLayerSize()
 	}
 
-	return head.headLayers[len(head.headLayers)-1].OutputShape().Size()
+	return head.HeadLayers[len(head.HeadLayers)-1].OutputShape().Size()
 }

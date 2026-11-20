@@ -22,7 +22,7 @@ const (
 
 // Head of Neural Network
 type Head struct {
-	headLayers []Layer
+	HeadLayers []Layer
 
 	// softmaxTransformation if not nil, converts a head's raw output into the probability distribution.
 	// It is applied during prediction and is not part of the ordinary backward graph.
@@ -31,7 +31,7 @@ type Head struct {
 
 func NewHead() *Head {
 	return &Head{
-		headLayers:            make([]Layer, 0, 10),
+		HeadLayers:            make([]Layer, 0, 10), // arbitrary initial capacity
 		softmaxTransformation: nil,
 	}
 }
@@ -41,7 +41,7 @@ func (h *Head) SoftmaxTransformation() bool {
 }
 
 func (h *Head) Reset() {
-	for _, layer := range h.headLayers {
+	for _, layer := range h.HeadLayers {
 		layer.Reset()
 	}
 }
@@ -57,7 +57,7 @@ func (h *Head) Forward(input *Tensor, storeTrainingCache bool) (*Tensor, error) 
 	var err error
 	x := input.Clone()
 
-	for _, layer := range h.headLayers {
+	for _, layer := range h.HeadLayers {
 		x, err = layer.Forward(x, storeTrainingCache)
 		if err != nil {
 			return nil, err
@@ -86,7 +86,7 @@ func (h *Head) Backward(outputGrad *Tensor) (*Tensor, error) {
 	inputGrad := outputGrad.Clone()
 	var err error
 
-	for _, layer := range slices.Backward(h.headLayers) {
+	for _, layer := range slices.Backward(h.HeadLayers) {
 		inputGrad, err = layer.Backward(inputGrad)
 		if err != nil {
 			return nil, fmt.Errorf("head backward: %w", err)
