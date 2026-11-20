@@ -2,6 +2,7 @@ package neuraljgo
 
 import "math"
 
+// Tanh (hyperbolic tangent) is a S-shaped function bounded between -1 and 1.
 type TanhActivation struct{}
 
 func (TanhActivation) Activate(z float64) float64 {

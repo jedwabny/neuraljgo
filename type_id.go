@@ -12,9 +12,10 @@ const (
 )
 
 const (
-	LinearActivationTypeID ActivationTypeID = "linear"
-	ReLUActivationTypeID   ActivationTypeID = "relu"
-	TanhActivationTypeID   ActivationTypeID = "tanh"
+	LinearActivationTypeID  ActivationTypeID = "linear"
+	ReLUActivationTypeID    ActivationTypeID = "relu"
+	SigmoidActivationTypeID ActivationTypeID = "sigmoid"
+	TanhActivationTypeID    ActivationTypeID = "tanh"
 )
 
 const (
