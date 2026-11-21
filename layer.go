@@ -18,8 +18,15 @@ type Layer interface {
 
 	TrainingCache() *TrainingCache
 
-	SpecificationDTO() *LayerSpecificationDTO
-	ParametersDTO() *LayerParametersDTO
+	// Specification returns the layer specification for model serialization.
+	Specification() *LayerSpecificationDTO
+
+	// Parameters returns the layer parameters for model serialization.
+	Parameters() *LayerParametersDTO
+
+	// LoadParameters restores the layer parameters from a DTO.
+	// It returns an error if the parameters do not match the layer structure.
+	RestoreParameters(*LayerParametersDTO) error
 
 	// InputShape returns a copy of the input shape.
 	InputShape() Shape

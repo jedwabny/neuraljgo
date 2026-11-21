@@ -261,8 +261,8 @@ func (n *Network) ModelDTO() *ModelDTO {
 	}
 
 	for _, l := range n.BodyLayers {
-		model.Specification.BodyLayers = append(model.Specification.BodyLayers, l.SpecificationDTO())
-		model.Parameters.BodyLayers = append(model.Parameters.BodyLayers, l.ParametersDTO())
+		model.Specification.BodyLayers = append(model.Specification.BodyLayers, l.Specification())
+		model.Parameters.BodyLayers = append(model.Parameters.BodyLayers, l.Parameters())
 	}
 	for hID, h := range n.OutputHeads {
 		headSpecificationDTO := &HeadSpecificationDTO{
@@ -273,8 +273,8 @@ func (n *Network) ModelDTO() *ModelDTO {
 			HeadLayers: make([]*LayerParametersDTO, 0, len(h.HeadLayers)),
 		}
 		for _, hl := range h.HeadLayers {
-			headSpecificationDTO.HeadLayers = append(headSpecificationDTO.HeadLayers, hl.SpecificationDTO())
-			headParametersDTO.HeadLayers = append(headParametersDTO.HeadLayers, hl.ParametersDTO())
+			headSpecificationDTO.HeadLayers = append(headSpecificationDTO.HeadLayers, hl.Specification())
+			headParametersDTO.HeadLayers = append(headParametersDTO.HeadLayers, hl.Parameters())
 		}
 
 		model.Specification.OutputHeads[hID] = headSpecificationDTO
