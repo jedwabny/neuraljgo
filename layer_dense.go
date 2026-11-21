@@ -221,7 +221,7 @@ func (l *DenseLayer) TrainingCache() *TrainingCache {
 	return l.trainingCache
 }
 
-func (l *DenseLayer) SpecificationDTO() *LayerSpecificationDTO {
+func (l *DenseLayer) Specification() *LayerSpecificationDTO {
 	return &LayerSpecificationDTO{
 		TypeID:      DenseLayerTypeID,
 		InputShape:  l.InputShape(),
@@ -231,11 +231,27 @@ func (l *DenseLayer) SpecificationDTO() *LayerSpecificationDTO {
 	}
 }
 
-func (l *DenseLayer) ParametersDTO() *LayerParametersDTO {
+func (l *DenseLayer) Parameters() *LayerParametersDTO {
 	return &LayerParametersDTO{
-		Weights: l.weights.Data(),
-		Biases:  l.biases.Data(),
+		Weights: append([]float64(nil), l.weights.Data()...),
+		Biases:  append([]float64(nil), l.biases.Data()...),
 	}
+}
+
+func (l *DenseLayer) RestoreParameters(params *LayerParametersDTO) error {
+	if len(params.Weights) != l.outputSize*l.inputSize {
+		return fmt.Errorf("model contains layer weights size not matching specification: %d != %d",
+			len(params.Weights), l.outputSize*l.inputSize)
+	}
+	if len(params.Biases) != l.outputSize {
+		return fmt.Errorf("model contains layer biases size not matching specification: %d != %d",
+			len(params.Biases), l.outputSize)
+	}
+
+	l.weights.data = append([]float64(nil), params.Weights...)
+	l.biases.data = append([]float64(nil), params.Biases...)
+
+	return nil
 }
 
 func (l *DenseLayer) InputShape() Shape {

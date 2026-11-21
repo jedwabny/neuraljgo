@@ -30,22 +30,24 @@ func NewBuilder(signature string, inputShape Shape) *Builder {
 	return builder
 }
 
+// Build validates the builder configuration, completes the network construction process,
+// and returns the resulting Network.
 func (b *Builder) Build() (*Network, error) {
 	if err := b.validateBuilderState(); err != nil {
 		return nil, err
 	}
 
 	if len(b.network.BodyLayers) == 0 {
-		return nil, fmt.Errorf("network has no body layers")
+		return nil, fmt.Errorf("builder: network has no body layers")
 	}
 	if len(b.network.OutputHeads) == 0 {
-		return nil, fmt.Errorf("network has no at least one output head")
+		return nil, fmt.Errorf("builder: network has no at least one output head")
 	}
 
 	for headID, head := range b.network.OutputHeads {
 		layersCount := len(head.HeadLayers)
 		if layersCount == 0 {
-			return nil, fmt.Errorf("network head '%s' has no layers", headID)
+			return nil, fmt.Errorf("builder: network head '%s' has no layers", headID)
 		}
 	}
 
@@ -54,117 +56,138 @@ func (b *Builder) Build() (*Network, error) {
 	return b.network, nil
 }
 
+// BuildFromModel creates a network by restoring its architecture and parameters from a model stored in a ModelDTO.
 func BuildFromModel(modelDTO *ModelDTO) (*Network, error) {
-	// Validate model DTO
-	if len(modelDTO.Specification.BodyLayers) == 0 {
-		return nil, fmt.Errorf("model does not contain body layers specification")
-	}
-
+	// Validate model specification and parameters lengths
 	if len(modelDTO.Specification.BodyLayers) != len(modelDTO.Parameters.BodyLayers) {
-		return nil, fmt.Errorf("model does not contain body layers specification with matching parameters")
-	}
-
-	if len(modelDTO.Specification.OutputHeads) == 0 {
-		return nil, fmt.Errorf("model does not contain output heads specification")
+		return nil, fmt.Errorf("builder: model body layers specification does not match parameters")
 	}
 
 	if len(modelDTO.Specification.OutputHeads) != len(modelDTO.Parameters.OutputHeads) {
-		return nil, fmt.Errorf("model does not contain output heads specification with matching parameters")
+		return nil, fmt.Errorf("builder: model output heads specification does not match parameters")
 	}
 
-	// Process through the builder
+	var layer Layer
+
 	signature := modelDTO.Metadata.Signature
 	inputShape := modelDTO.Specification.InputShape
+	network, err := NewNetwork(signature, inputShape)
+	if err != nil {
+		return nil, err
+	}
 
-	builder := NewBuilder(signature, inputShape)
-
-	for i, l := range modelDTO.Specification.BodyLayers {
-		inputSize := NewShape(l.InputShape...).Size()
-		outputSize := NewShape(l.OutputShape...).Size()
-		if l.Activation == nil || l.Activation.TypeID == "" {
-			return nil, fmt.Errorf("undefined activation type ID")
-		}
-		activation, err := NewActivationByTypeID(l.Activation.TypeID)
-		if err != nil {
-			return nil, err
-		}
-		switch t := l.TypeID; t {
+	for lID, lSpec := range modelDTO.Specification.BodyLayers {
+		layer = nil
+		switch lSpec.TypeID {
 		case DenseLayerTypeID:
-			if len(modelDTO.Parameters.BodyLayers[i].Weights) != outputSize*inputSize {
-				return nil, fmt.Errorf("model contains layer weights size not matching specification: %d != %d",
-					len(modelDTO.Parameters.BodyLayers[i].Weights), outputSize*inputSize)
+			if lSpec.Activation == nil || lSpec.Activation.TypeID == "" {
+				return nil, fmt.Errorf("builder: undefined activation type ID")
 			}
-			if len(modelDTO.Parameters.BodyLayers[i].Biases) != outputSize {
-				return nil, fmt.Errorf("model contains layer biases size not matching specification: %d != %d",
-					len(modelDTO.Parameters.BodyLayers[i].Biases), outputSize)
+			activation, err := NewActivationByTypeID(lSpec.Activation.TypeID)
+			if err != nil {
+				return nil, fmt.Errorf("builder: %w", err)
 			}
-			builder.AddDenseLayer(outputSize, activation)
-			createdLayer := builder.leadingBodyLayer().(*DenseLayer)
-			createdLayer.weights.data = append([]float64(nil), modelDTO.Parameters.BodyLayers[i].Weights...)
-			createdLayer.biases.data = append([]float64(nil), modelDTO.Parameters.BodyLayers[i].Biases...)
+
+			layer, err = NewDenseLayer(lSpec.InputShape.Size(), lSpec.OutputShape.Size(), activation)
+			if err != nil {
+				return nil, fmt.Errorf("builder: %w", err)
+			}
+
+			if err = layer.RestoreParameters(modelDTO.Parameters.BodyLayers[lID]); err != nil {
+				return nil, fmt.Errorf("builder: %w", err)
+			}
+		case FlattenLayerTypeID:
+			layer, err = NewFlattenLayer(lSpec.InputShape)
+			if err != nil {
+				return nil, fmt.Errorf("builder: %w", err)
+			}
+		case SoftmaxLayerTypeID:
+			layer, err = NewSoftmaxLayer(lSpec.InputShape.Size())
+			if err != nil {
+				return nil, fmt.Errorf("builder: %w", err)
+			}
 		default:
-			return nil, fmt.Errorf("undefined or unsuitable body layer type ID: %s", t)
+			return nil, fmt.Errorf("builder: undefined or unsuitable body layer type ID: %s", lSpec.TypeID)
 		}
+
+		network.BodyLayers = append(network.BodyLayers, layer)
+	}
+
+	if len(network.BodyLayers) == 0 {
+		return nil, fmt.Errorf("builder: cannot create output heads without body layers")
 	}
 
 	for hID, hSpec := range modelDTO.Specification.OutputHeads {
 		if hSpec == nil {
-			return nil, fmt.Errorf("undefined head specification for head: %s", hID)
+			return nil, fmt.Errorf("builder: undefined head specification for head: %s", hID)
 		}
 		hParams, ok := modelDTO.Parameters.OutputHeads[hID]
 		if !ok || hParams == nil {
-			return nil, fmt.Errorf("undefined head parameters for head: %s", hID)
-		}
-		if len(hSpec.HeadLayers) == 0 {
-			return nil, fmt.Errorf("model does not contain head layers specification for head: %s", hID)
+			return nil, fmt.Errorf("builder: undefined head parameters for head: %s", hID)
 		}
 
 		if len(hSpec.HeadLayers) != len(hParams.HeadLayers) {
-			return nil, fmt.Errorf("model does not contain head layers parameters matching its specification for head: %s", hID)
+			return nil, fmt.Errorf("builder: model head layers specification does not match parameters, head: %s", hID)
 		}
 
-		builder.AddHead(hID)
+		head := NewHead()
+		network.OutputHeads[hID] = head
 
-		for i, hl := range hSpec.HeadLayers {
-			inputSize := NewShape(hl.InputShape...).Size()
-			outputSize := NewShape(hl.OutputShape...).Size()
-			if hl.Activation == nil || hl.Activation.TypeID == "" {
-				return nil, fmt.Errorf("undefined activation type ID in layers of head: %s", hID)
-			}
-			activation, err := NewActivationByTypeID(hl.Activation.TypeID)
-			if err != nil {
-				return nil, err
-			}
-			switch t := hl.TypeID; t {
+		for hlID, hlSpec := range hSpec.HeadLayers {
+			layer = nil
+			switch t := hlSpec.TypeID; t {
 			case DenseLayerTypeID:
-				if len(hParams.HeadLayers[i].Weights) != outputSize*inputSize {
-					return nil, fmt.Errorf("model contains layer weights size not matching specification: %d != %d, head: %s",
-						len(hParams.HeadLayers[i].Weights), outputSize*inputSize, hID)
+				if hlSpec.Activation == nil || hlSpec.Activation.TypeID == "" {
+					return nil, fmt.Errorf("builder: undefined activation type ID, head: %s", hID)
 				}
-				if len(hParams.HeadLayers[i].Biases) != outputSize {
-					return nil, fmt.Errorf("model contains layer biases size not matching specification: %d != %d, head: %s",
-						len(hParams.HeadLayers[i].Biases), outputSize, hID)
+				activation, err := NewActivationByTypeID(hlSpec.Activation.TypeID)
+				if err != nil {
+					return nil, fmt.Errorf("builder: %w", err)
 				}
-				builder.AddHeadDenseLayer(hID, outputSize, activation)
-				createdHeadLayer := builder.leadingHeadLayer(hID).(*DenseLayer)
-				createdHeadLayer.weights.data = append([]float64(nil), hParams.HeadLayers[i].Weights...)
-				createdHeadLayer.biases.data = append([]float64(nil), hParams.HeadLayers[i].Biases...)
+
+				layer, err = NewDenseLayer(hlSpec.InputShape.Size(), hlSpec.OutputShape.Size(), activation)
+				if err != nil {
+					return nil, fmt.Errorf("builder: %w", err)
+				}
+
+				if err = layer.RestoreParameters(hParams.HeadLayers[hlID]); err != nil {
+					return nil, fmt.Errorf("builder: %w", err)
+				}
+			case FlattenLayerTypeID:
+				layer, err = NewFlattenLayer(hlSpec.InputShape)
+				if err != nil {
+					return nil, fmt.Errorf("builder: %w", err)
+				}
 			case SoftmaxLayerTypeID:
-				builder.AddHeadSoftmaxLayer(hID)
+				layer, err = NewSoftmaxLayer(hlSpec.InputShape.Size())
+				if err != nil {
+					return nil, fmt.Errorf("builder: %w", err)
+				}
 			default:
-				return nil, fmt.Errorf("undefined or unsuitable layer type ID: %s, in head: %s", t, hID)
+				return nil, fmt.Errorf("builder: undefined or unsuitable head layer type ID: %s, head: %s", t, hID)
 			}
+
+			head.HeadLayers = append(head.HeadLayers, layer)
 		}
 		if hSpec.SoftmaxTransformation == true {
-			builder.WithHeadSoftmaxTransformation(hID)
+			var inputSize int
+			layer = nil
+			if len(head.HeadLayers) == 0 {
+				inputSize = network.BodyLayers[len(network.BodyLayers)-1].OutputShape().Size()
+			} else {
+				inputSize = head.HeadLayers[len(head.HeadLayers)-1].OutputShape().Size()
+			}
+
+			layer, err = NewSoftmaxLayer(inputSize)
+			if err != nil {
+				return nil, fmt.Errorf("builder: %w", err)
+			}
+
+			head.softmaxTransformation = layer.(*SoftmaxLayer)
 		}
 	}
 
-	if err := builder.validateBuilderState(); err != nil {
-		return nil, err
-	}
-
-	return builder.network, nil
+	return network, nil
 }
 
 func (b *Builder) AddDenseLayer(size int, activation Activation) *Builder {
@@ -172,7 +195,7 @@ func (b *Builder) AddDenseLayer(size int, activation Activation) *Builder {
 		return b
 	}
 	if len(b.network.OutputHeads) != 0 {
-		b.setBuilderError(fmt.Errorf("attempted to add body layer after head"))
+		b.setBuilderError(fmt.Errorf("builder: attempted to add body layer after head"))
 		return b
 	}
 
@@ -198,7 +221,7 @@ func (b *Builder) AddFlattenLayer() *Builder {
 	}
 
 	if len(b.network.OutputHeads) != 0 {
-		b.setBuilderError(fmt.Errorf("attempted to add body layer after head"))
+		b.setBuilderError(fmt.Errorf("builder: attempted to add body layer after head"))
 		return b
 	}
 
@@ -218,7 +241,7 @@ func (b *Builder) AddHead(headID HeadID) *Builder {
 		return b
 	}
 	if len(b.network.BodyLayers) == 0 {
-		b.setBuilderError(fmt.Errorf("attempted to add output head to network without body layers"))
+		b.setBuilderError(fmt.Errorf("builder: attempted to add output head to network without body layers"))
 		return b
 	}
 
@@ -235,7 +258,7 @@ func (b *Builder) AddHeadDenseLayer(headID HeadID, size int, activation Activati
 
 	head, ok := b.network.OutputHeads[headID]
 	if !ok {
-		b.setBuilderError(fmt.Errorf("attempted to add layer to unknown head '%s'", headID))
+		b.setBuilderError(fmt.Errorf("builder: attempted to add layer to unknown head '%s'", headID))
 		return b
 	}
 
@@ -274,7 +297,7 @@ func (b *Builder) AddHeadSoftmaxLayer(headID HeadID) *Builder {
 
 	head, ok := b.network.OutputHeads[headID]
 	if !ok {
-		b.setBuilderError(fmt.Errorf("attempted to add layer to unknown output head '%s'", headID))
+		b.setBuilderError(fmt.Errorf("builder: attempted to add layer to unknown output head '%s'", headID))
 		return b
 	}
 
@@ -311,7 +334,7 @@ func (b *Builder) WithHeadSoftmaxTransformation(headID HeadID) *Builder {
 
 	head, ok := b.network.OutputHeads[headID]
 	if !ok {
-		b.setBuilderError(fmt.Errorf("attempted to enable Softmax transformation for unknown output head '%s'", headID))
+		b.setBuilderError(fmt.Errorf("builder: attempted to enable Softmax transformation for unknown output head '%s'", headID))
 		return b
 	}
 

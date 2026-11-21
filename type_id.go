@@ -7,8 +7,8 @@ type InitializerTypeID string
 
 const (
 	DenseLayerTypeID   LayerTypeID = "dense"
-	SoftmaxLayerTypeID LayerTypeID = "softmax"
 	FlattenLayerTypeID LayerTypeID = "flatten"
+	SoftmaxLayerTypeID LayerTypeID = "softmax"
 )
 
 const (

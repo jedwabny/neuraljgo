@@ -34,8 +34,8 @@ type HeadParametersDTO struct {
 type LayerSpecificationDTO struct {
 	TypeID LayerTypeID `json:"type_id"`
 
-	InputShape  []int `json:"input_shape"`
-	OutputShape []int `json:"output_shape"`
+	InputShape  Shape `json:"input_shape"`
+	OutputShape Shape `json:"output_shape"`
 
 	Activation  *ActivationModelDTO  `json:"activation"`
 	Initializer *InitializerModelDTO `json:"initializer"`

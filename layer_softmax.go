@@ -119,7 +119,7 @@ func (l *SoftmaxLayer) TrainingCache() *TrainingCache {
 	return l.trainingCache
 }
 
-func (l *SoftmaxLayer) SpecificationDTO() *LayerSpecificationDTO {
+func (l *SoftmaxLayer) Specification() *LayerSpecificationDTO {
 	return &LayerSpecificationDTO{
 		TypeID:      SoftmaxLayerTypeID,
 		InputShape:  l.InputShape(),
@@ -129,11 +129,12 @@ func (l *SoftmaxLayer) SpecificationDTO() *LayerSpecificationDTO {
 	}
 }
 
-func (l *SoftmaxLayer) ParametersDTO() *LayerParametersDTO {
-	return &LayerParametersDTO{
-		Weights: nil,
-		Biases:  nil,
-	}
+func (l *SoftmaxLayer) Parameters() *LayerParametersDTO {
+	return &LayerParametersDTO{}
+}
+
+func (l *SoftmaxLayer) RestoreParameters(*LayerParametersDTO) error {
+	return nil
 }
 
 func (l *SoftmaxLayer) InputShape() Shape {

@@ -78,7 +78,7 @@ func (l *FlattenLayer) TrainingCache() *TrainingCache {
 	return nil
 }
 
-func (l *FlattenLayer) SpecificationDTO() *LayerSpecificationDTO {
+func (l *FlattenLayer) Specification() *LayerSpecificationDTO {
 	return &LayerSpecificationDTO{
 		TypeID:      FlattenLayerTypeID,
 		InputShape:  l.InputShape(),
@@ -88,8 +88,12 @@ func (l *FlattenLayer) SpecificationDTO() *LayerSpecificationDTO {
 	}
 }
 
-func (l *FlattenLayer) ParametersDTO() *LayerParametersDTO {
+func (l *FlattenLayer) Parameters() *LayerParametersDTO {
 	return &LayerParametersDTO{}
+}
+
+func (l *FlattenLayer) RestoreParameters(*LayerParametersDTO) error {
+	return nil
 }
 
 func (l *FlattenLayer) InputShape() Shape {
