@@ -1,14 +1,25 @@
 package neuraljgo
 
+import "time"
+
 type ModelDTO struct {
 	FormatVersion int               `json:"format_version"`
-	Metadata      *MetadataDTO      `json:"metadata"`
+	Identity      *IdentityDTO      `json:"identity"`
 	Specification *SpecificationDTO `json:"specification"`
 	Parameters    *ParametersDTO    `json:"parameters"`
 }
 
-type MetadataDTO struct {
-	Signature string `json:"signature"`
+// IdentityDTO contains optional metadata identifying and describing a model.
+type IdentityDTO struct {
+	ID             string    `json:"id"`              // Stable model identifier, e.g. "model-0001".
+	Name           string    `json:"name"`            // Human-readable model name, e.g. "LettersClassifier".
+	Description    string    `json:"description"`     // Model description.
+	Version        string    `json:"version"`         // Model release version, e.g. "0.0.1".
+	Generation     int       `json:"generation"`      // Training generation, e.g. 5.
+	Task           string    `json:"task"`            // Intended machine learning task.
+	DatasetName    string    `json:"dataset_name"`    // Training dataset name.
+	DatasetVersion string    `json:"dataset_version"` // Training dataset revision.
+	CreatedAt      time.Time `json:"created_at"`      // Model artifact creation time.
 }
 
 type SpecificationDTO struct {
