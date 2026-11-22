@@ -11,16 +11,15 @@ go get github.com/jedwabny/neuraljgo
 ## Initialize network
 
 ```go
-signature := "emnist-letters"
 inputShape := neuraljgo.NewShape(28, 28)
 outputClasses := 26
 
-nn, err := neuraljgo.NewBuilder(signature, inputShape).
+nn, err := neuraljgo.NewBuilder(inputShape).
     AddFlattenLayer().
     AddDenseLayer(512, neuraljgo.ReLUActivation{}).
     AddDenseLayer(256, neuraljgo.ReLUActivation{}).
     AddHead(neuraljgo.ClassificationHead).
     AddHeadDenseLayer(neuraljgo.ClassificationHead, outputClasses, neuraljgo.LinearActivation{}). // Produce desired number of outputs
-    WithHeadSoftmaxTransformation(neuraljgo.PolicyHead). // Convert outputs to probability distribution
+    WithHeadSoftmaxTransformation(neuraljgo.ClassificationHead). // Convert outputs to probability distribution
     Build()
 ```

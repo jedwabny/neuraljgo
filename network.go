@@ -3,19 +3,20 @@ package neuraljgo
 import (
 	"fmt"
 	"slices"
+	"time"
 )
 
 type Network struct {
-	signature   string
+	identity    *IdentityDTO
 	inputShape  Shape
 	BodyLayers  []Layer
 	OutputHeads map[HeadID]*Head
 }
 
-// NewNetwork creates a Network with given signature and input shape.
+// NewNetwork creates a Network with given input shape.
 //
-// The body layers and heads map are initially empty.
-func NewNetwork(signature string, inputShape Shape) (*Network, error) {
+// The identity, body layers, and output heads are initially empty.
+func NewNetwork(inputShape Shape) (*Network, error) {
 	if inputShape == nil {
 		return nil, fmt.Errorf("network new: input shape is nil")
 	}
@@ -25,7 +26,7 @@ func NewNetwork(signature string, inputShape Shape) (*Network, error) {
 	}
 
 	network := Network{
-		signature:   signature,
+		identity:    nil,
 		inputShape:  inputShape.Clone(),
 		BodyLayers:  make([]Layer, 0, 10),      // arbitrary initial capacity
 		OutputHeads: make(map[HeadID]*Head, 5), // arbitrary initial capacity
@@ -34,8 +35,53 @@ func NewNetwork(signature string, inputShape Shape) (*Network, error) {
 	return &network, nil
 }
 
-func (n *Network) Signature() string {
-	return n.signature
+// SetIdentity assigns model identity. If setCreatedAtNow is set to true,
+// the model identity's creation time is overwritten with the current time.
+func (n *Network) SetIdentity(identity *IdentityDTO, setCreatedAtNow bool) {
+	if identity == nil {
+		n.identity = nil
+		return
+	}
+
+	// Shallow copy
+	identityCopy := *identity
+	n.identity = &identityCopy
+
+	if setCreatedAtNow {
+		n.identity.CreatedAt = time.Now()
+	}
+}
+
+// IncrementGeneration increments the training generation in the model identity.
+func (n *Network) IncrementGeneration() error {
+	if n.identity == nil {
+		return fmt.Errorf("increment generation failed: identity is not set")
+	}
+
+	n.identity.Generation++
+
+	return nil
+}
+
+// SetCreatedAtNow sets the model identity's creation time to the current time.
+func (n *Network) SetCreatedAtNow() error {
+	if n.identity == nil {
+		return fmt.Errorf("setting model creation time failed: identity is not set")
+	}
+
+	n.identity.CreatedAt = time.Now()
+
+	return nil
+}
+
+// Identity returns a copy of the model identity.
+// The second return value indicates whether an identity is set.
+func (n *Network) Identity() (IdentityDTO, bool) {
+	if n.identity == nil {
+		return IdentityDTO{}, false
+	}
+
+	return *n.identity, true
 }
 
 func (n *Network) InputShape() Shape {
@@ -244,13 +290,17 @@ func (n *Network) Learn(input *Tensor, objectives LearningObjectives, optimizer 
 }
 
 func (n *Network) ModelDTO() *ModelDTO {
+	var identity *IdentityDTO
+	if n.identity != nil {
+		identityCopy := *n.identity
+		identity = &identityCopy
+	}
+
 	model := &ModelDTO{
 		FormatVersion: 1,
-		Metadata: &MetadataDTO{
-			Signature: n.signature,
-		},
+		Identity:      identity,
 		Specification: &SpecificationDTO{
-			InputShape:  n.inputShape,
+			InputShape:  n.inputShape.Clone(),
 			BodyLayers:  make([]*LayerSpecificationDTO, 0, len(n.BodyLayers)),
 			OutputHeads: make(map[HeadID]*HeadSpecificationDTO, len(n.OutputHeads)),
 		},

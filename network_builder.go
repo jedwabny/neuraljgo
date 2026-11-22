@@ -9,7 +9,7 @@ type Builder struct {
 	builderErr error
 }
 
-// NewBuilder creates a Network builder with the given signature and input shape of the Network.
+// NewBuilder creates a Network builder with the given input shape of the Network.
 //
 // An input shape represents the shape of a single input sample, excluding any batch dimension.
 //
@@ -17,10 +17,10 @@ type Builder struct {
 // to configure an input size of a first layer. If a layer, such as a dense layer,
 // requires a vector as input and the input of network is multidimensional
 // a flatten layer must be added before it.
-func NewBuilder(signature string, inputShape Shape) *Builder {
+func NewBuilder(inputShape Shape) *Builder {
 	builder := &Builder{}
 
-	network, err := NewNetwork(signature, inputShape)
+	network, err := NewNetwork(inputShape)
 	if err != nil {
 		builder.setBuilderError(err)
 	} else {
@@ -56,9 +56,18 @@ func (b *Builder) Build() (*Network, error) {
 	return b.network, nil
 }
 
-// BuildFromModel creates a network by restoring its architecture and parameters from a model stored in a ModelDTO.
+// BuildFromModel creates a network by restoring its identity, architecture,
+// and parameters from a model stored in a ModelDTO.
 func BuildFromModel(modelDTO *ModelDTO) (*Network, error) {
-	// Validate model specification and parameters lengths
+	// Builder is responsible for brief validation only
+	if modelDTO == nil {
+		return nil, fmt.Errorf("builder: model DTO is nil")
+	}
+
+	if modelDTO.FormatVersion != 1 {
+		return nil, fmt.Errorf("builder: unknown version %d of model format", modelDTO.FormatVersion)
+	}
+
 	if len(modelDTO.Specification.BodyLayers) != len(modelDTO.Parameters.BodyLayers) {
 		return nil, fmt.Errorf("builder: model body layers specification does not match parameters")
 	}
@@ -69,11 +78,14 @@ func BuildFromModel(modelDTO *ModelDTO) (*Network, error) {
 
 	var layer Layer
 
-	signature := modelDTO.Metadata.Signature
-	inputShape := modelDTO.Specification.InputShape
-	network, err := NewNetwork(signature, inputShape)
+	network, err := NewNetwork(modelDTO.Specification.InputShape)
 	if err != nil {
 		return nil, err
+	}
+
+	identity := modelDTO.Identity
+	if identity != nil {
+		network.SetIdentity(identity, false)
 	}
 
 	for lID, lSpec := range modelDTO.Specification.BodyLayers {
