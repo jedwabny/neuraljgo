@@ -34,6 +34,7 @@ type Layer interface {
 	// OutputShape returns a copy of the output shape.
 	OutputShape() Shape
 
+	// Reset resets the layer trainable parameters.
 	Reset() error
 }
 

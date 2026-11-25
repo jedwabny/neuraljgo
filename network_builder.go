@@ -51,13 +51,20 @@ func (b *Builder) Build() (*Network, error) {
 		}
 	}
 
-	b.network.Reset()
+	err := b.network.Reset()
+	if err != nil {
+		return nil, err
+	}
 
 	return b.network, nil
 }
 
 // BuildFromModel creates a network by restoring its identity, architecture,
 // and parameters from a model stored in a ModelDTO.
+//
+// If the model has an identity, the returned network is locked against
+// operations that modify trainable parameters. Assigning a different identity
+// or incrementing the model generation unlocks the network.
 func BuildFromModel(modelDTO *ModelDTO) (*Network, error) {
 	// Builder is responsible for brief validation only
 	if modelDTO == nil {
@@ -83,9 +90,9 @@ func BuildFromModel(modelDTO *ModelDTO) (*Network, error) {
 		return nil, err
 	}
 
-	identity := modelDTO.Identity
-	if identity != nil {
-		network.SetIdentity(identity, false)
+	if modelDTO.Identity != nil {
+		network.SetIdentity(modelDTO.Identity)
+		network.LockModel()
 	}
 
 	for lID, lSpec := range modelDTO.Specification.BodyLayers {

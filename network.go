@@ -6,14 +6,19 @@ import (
 	"time"
 )
 
+// Network represents a neural network composed of body layers and output heads.
+// It can be locked to prevent Network methods from modifying trainable parameters.
 type Network struct {
-	identity    *IdentityDTO
+	identity *IdentityDTO
+
 	inputShape  Shape
 	BodyLayers  []Layer
 	OutputHeads map[HeadID]*Head
+
+	modelLocked bool
 }
 
-// NewNetwork creates a Network with given input shape.
+// NewNetwork creates a Network with the given input shape.
 //
 // The identity, body layers, and output heads are initially empty.
 func NewNetwork(inputShape Shape) (*Network, error) {
@@ -30,35 +35,71 @@ func NewNetwork(inputShape Shape) (*Network, error) {
 		inputShape:  inputShape.Clone(),
 		BodyLayers:  make([]Layer, 0, 10),      // arbitrary initial capacity
 		OutputHeads: make(map[HeadID]*Head, 5), // arbitrary initial capacity
+		modelLocked: false,
 	}
 
 	return &network, nil
 }
 
-// SetIdentity assigns model identity. If setCreatedAtNow is set to true,
-// the model identity's creation time is overwritten with the current time.
-func (n *Network) SetIdentity(identity *IdentityDTO, setCreatedAtNow bool) {
+// LockModel prevents Network methods that modify trainable parameters from running.
+//
+// Direct modifications through layer or head references are not protected by this lock.
+func (n *Network) LockModel() {
+	n.modelLocked = true
+}
+
+// ModelLocked returns whether Network is locked from running
+// methods that modify trainable model parameters.
+func (n *Network) ModelLocked() bool {
+	return n.modelLocked
+}
+
+// SetIdentity assigns model identity.
+//
+// Assigning nil clears the identity and unlocks the model.
+// Assigning a different identity also unlocks the model,
+// allowing further modifications to trainable parameters.
+//
+// An identity is considered different when any of the following attributes differ:
+// ID, Name, Version, Generation, Task, DatasetName, or DatasetVersion.
+// Changes to other attributes do not unlock the model.
+func (n *Network) SetIdentity(identity *IdentityDTO) {
 	if identity == nil {
 		n.identity = nil
+		n.modelLocked = false
 		return
 	}
 
-	// Shallow copy
+	// Selective identity comparison
+	identityChanged := n.identity == nil ||
+		identity.ID != n.identity.ID ||
+		identity.Name != n.identity.Name ||
+		identity.Version != n.identity.Version ||
+		identity.Generation != n.identity.Generation ||
+		identity.Task != n.identity.Task ||
+		identity.DatasetName != n.identity.DatasetName ||
+		identity.DatasetVersion != n.identity.DatasetVersion
+
+	if identityChanged {
+		n.modelLocked = false
+	}
+
+	// Copy the identity to prevent changes through the caller's pointer.
 	identityCopy := *identity
 	n.identity = &identityCopy
-
-	if setCreatedAtNow {
-		n.identity.CreatedAt = time.Now()
-	}
 }
 
 // IncrementGeneration increments the training generation in the model identity.
+//
+// It unlocks a locked model, allowing further modifications
+// to trainable parameters.
 func (n *Network) IncrementGeneration() error {
 	if n.identity == nil {
 		return fmt.Errorf("increment generation failed: identity is not set")
 	}
 
 	n.identity.Generation++
+	n.modelLocked = false
 
 	return nil
 }
@@ -74,30 +115,40 @@ func (n *Network) SetCreatedAtNow() error {
 	return nil
 }
 
-// Identity returns a copy of the model identity.
-// The second return value indicates whether an identity is set.
-func (n *Network) Identity() (IdentityDTO, bool) {
+// Identity returns a copy of the model identity, or nil if it is not set.
+func (n *Network) Identity() *IdentityDTO {
 	if n.identity == nil {
-		return IdentityDTO{}, false
+		return nil
 	}
 
-	return *n.identity, true
+	identityCopy := *n.identity
+	return &identityCopy
 }
 
+// InputShape returns a copy of the network's input shape.
 func (n *Network) InputShape() Shape {
 	return n.inputShape.Clone()
 }
 
-func (n *Network) Reset() {
+// Reset resets the trainable parameters of all body layers and output heads.
+//
+// It returns an error if the model is locked.
+func (n *Network) Reset() error {
+	if n.modelLocked {
+		return fmt.Errorf("network reset: model is locked")
+	}
+
 	for _, layer := range n.BodyLayers {
 		layer.Reset()
 	}
 	for _, head := range n.OutputHeads {
 		head.Reset()
 	}
+
+	return nil
 }
 
-// Predict evaluates the network for the given input
+// Predict performs a forward pass for the given input
 // and returns the prediction for all network heads.
 func (n *Network) Predict(input *Tensor) (map[HeadID]*Tensor, error) {
 	return n.forward(input, false)
@@ -139,13 +190,16 @@ func (n *Network) forward(input *Tensor, storeTrainingCache bool) (map[HeadID]*T
 	return predictions, nil
 }
 
-// Learn evaluates the network, computes the configured head objectives,
-// back-propagates their combined gradients, and updates the network weights.
+// Learn performs a forward pass, computes the objectives for the selected
+// output heads, backpropagates their combined gradients, and updates the
+// network's trainable parameters.
 //
-// Only heads present in learningObjectives participate in learning.
-// Learn may validate that each objective's Loss is compatible with the
-// corresponding head output configuration.
+// Only heads present in objectives participate in learning.
+// It returns an error if the model is locked.
 func (n *Network) Learn(input *Tensor, objectives LearningObjectives, optimizer Optimizer) (*LearningResult, error) {
+	if n.modelLocked {
+		return nil, fmt.Errorf("network learn: model is locked")
+	}
 	if input == nil {
 		return nil, fmt.Errorf("network learn: input tensor is nil")
 	}
